@@ -122,6 +122,8 @@ Route::get('/debug/firebase-error', function () {
 
 
 Route::get('/debug/php', function () {
+    $googleCredentials = getenv('GOOGLE_APPLICATION_CREDENTIALS');
+
     return response()->json([
         'ok' => true,
         'php_version' => PHP_VERSION,
@@ -134,8 +136,11 @@ Route::get('/debug/php', function () {
         'storage_writable' => is_writable(storage_path('app')),
         'firebase_dir_exists' => is_dir(storage_path('app/firebase')),
         'firebase_dir_writable' => is_dir(storage_path('app/firebase')) ? is_writable(storage_path('app/firebase')) : null,
+        'google_application_credentials' => $googleCredentials ?: null,
+        'google_application_credentials_exists' => $googleCredentials ? file_exists($googleCredentials) : false,
     ]);
 });
+
 
 Route::get('/debug/firebase-credentials', function () {
     try {

@@ -33,11 +33,17 @@ class FirebaseService
                 throw new RuntimeException('No se encontró el archivo de credenciales Firebase en: ' . ($credentialsPath ?: 'NULL'));
             }
 
+            putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $credentialsPath);
+            $_ENV['GOOGLE_APPLICATION_CREDENTIALS'] = $credentialsPath;
+            $_SERVER['GOOGLE_APPLICATION_CREDENTIALS'] = $credentialsPath;
+
             Log::debug('Inicializando Firebase', [
                 'project_id' => $projectId,
                 'credentials_path' => $credentialsPath,
                 'credentials_exists' => file_exists($credentialsPath),
+                'credentials_size' => filesize($credentialsPath),
                 'grpc_roots_path' => $grpcRootsPath,
+                'google_application_credentials' => getenv('GOOGLE_APPLICATION_CREDENTIALS'),
             ]);
 
             $factory = (new Factory)
@@ -81,7 +87,35 @@ class FirebaseService
                 throw new RuntimeException('FIREBASE_CREDENTIALS_BASE64 no contiene JSON válido: ' . json_last_error_msg());
             }
 
-            file_put_contents($path, $decoded);
+            if (($json['type'] ?? null) !== 'service_account') {
+                throw new RuntimeException('Las credenciales Firebase no son de tipo service_account.');
+            }
+
+            if (empty($json['project_id'])) {
+                throw new RuntimeException('Las credenciales Firebase no contienen project_id.');
+            }
+
+            if (empty($json['client_email'])) {
+                throw new RuntimeException('Las credenciales Firebase no contienen client_email.');
+            }
+
+            if (empty($json['private_key'])) {
+                throw new RuntimeException('Las credenciales Firebase no contienen private_key.');
+            }
+
+            $result = file_put_contents($path, $decoded);
+
+            if ($result === false) {
+                throw new RuntimeException('No se pudo escribir el archivo de credenciales Firebase.');
+            }
+
+            if (!file_exists($path)) {
+                throw new RuntimeException('El archivo de credenciales Firebase no existe después de escribirlo.');
+            }
+
+            if (filesize($path) <= 0) {
+                throw new RuntimeException('El archivo de credenciales Firebase fue escrito vacío.');
+            }
 
             return $path;
         }
