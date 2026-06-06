@@ -42,32 +42,10 @@ Route::get('/debug/env', function () {
     ]);
 });
 
-Route::get('/debug/firebase', function (FirebaseService $firebase) {
-    $db = $firebase->db();
-
-    $documents = $db
-        ->collection('patients')
-        ->limit(1)
-        ->documents();
-
-    $items = [];
-
-    foreach ($documents as $document) {
-        if ($document->exists()) {
-            $items[] = $document->data();
-        }
-    }
-
-    return response()->json([
-        'ok' => true,
-        'message' => 'Firebase respondió correctamente',
-        'sample_count' => count($items),
-        'sample' => $items,
-    ]);
-});
-
-Route::get('/debug/firebase-error', function (FirebaseService $firebase) {
+Route::get('/debug/firebase', function () {
     try {
+        $firebase = app(\App\Services\FirebaseService::class);
+
         $db = $firebase->db();
 
         $documents = $db
@@ -100,6 +78,48 @@ Route::get('/debug/firebase-error', function (FirebaseService $firebase) {
         ], 500);
     }
 });
+
+
+Route::get('/debug/firebase-error', function () {
+    try {
+        $firebase = app(\App\Services\FirebaseService::class);
+
+        $db = $firebase->db();
+
+        $documents = $db
+            ->collection('patients')
+            ->limit(1)
+            ->documents();
+
+        $items = [];
+
+        foreach ($documents as $document) {
+            if ($document->exists()) {
+                $items[] = $document->data();
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Firebase respondió correctamente',
+            'sample_count' => count($items),
+            'sample' => $items,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'Error conectando con Firebase',
+            'error' => $e->getMessage(),
+            'file' => basename($e->getFile()),
+            'line' => $e->getLine(),
+            'class' => get_class($e),
+            'trace_preview' => collect(explode("\n", $e->getTraceAsString()))
+                ->take(5)
+                ->values(),
+        ], 500);
+    }
+});
+
 
 Route::get('/debug/php', function () {
     return response()->json([
