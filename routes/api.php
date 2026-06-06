@@ -65,3 +65,118 @@ Route::get('/debug/firebase', function (FirebaseService $firebase) {
         'sample' => $items,
     ]);
 });
+
+Route::get('/debug/firebase-error', function (FirebaseService $firebase) {
+    try {
+        $db = $firebase->db();
+
+        $documents = $db
+            ->collection('patients')
+            ->limit(1)
+            ->documents();
+
+        $items = [];
+
+        foreach ($documents as $document) {
+            if ($document->exists()) {
+                $items[] = $document->data();
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Firebase respondió correctamente',
+            'sample_count' => count($items),
+            'sample' => $items,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'Error conectando con Firebase',
+            'error' => $e->getMessage(),
+            'file' => basename($e->getFile()),
+            'line' => $e->getLine(),
+            'class' => get_class($e),
+        ], 500);
+    }
+});
+
+Route::get('/debug/php', function () {
+    return response()->json([
+        'ok' => true,
+        'php_version' => PHP_VERSION,
+        'grpc_loaded' => extension_loaded('grpc'),
+        'protobuf_loaded' => extension_loaded('protobuf'),
+        'openssl_loaded' => extension_loaded('openssl'),
+        'curl_loaded' => extension_loaded('curl'),
+        'json_loaded' => extension_loaded('json'),
+        'storage_path' => storage_path('app/firebase'),
+        'storage_writable' => is_writable(storage_path('app')),
+        'firebase_dir_exists' => is_dir(storage_path('app/firebase')),
+        'firebase_dir_writable' => is_dir(storage_path('app/firebase')) ? is_writable(storage_path('app/firebase')) : null,
+    ]);
+});
+
+Route::get('/debug/firebase-credentials', function () {
+    try {
+        $base64 = env('FIREBASE_CREDENTIALS_BASE64');
+
+        if (!$base64) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'FIREBASE_CREDENTIALS_BASE64 no está configurado',
+            ], 500);
+        }
+
+        $decoded = base64_decode($base64, true);
+
+        if ($decoded === false) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'FIREBASE_CREDENTIALS_BASE64 no es Base64 válido',
+            ], 500);
+        }
+
+        $json = json_decode($decoded, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'El contenido decodificado no es JSON válido',
+                'json_error' => json_last_error_msg(),
+            ], 500);
+        }
+
+        $directory = storage_path('app/firebase');
+
+        if (!is_dir($directory)) {
+            mkdir($directory, 0775, true);
+        }
+
+        $path = $directory . '/firebase_credentials_debug.json';
+
+        file_put_contents($path, $decoded);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Credenciales Firebase decodificadas y escritas correctamente',
+            'type' => $json['type'] ?? null,
+            'project_id' => $json['project_id'] ?? null,
+            'client_email_exists' => !empty($json['client_email']),
+            'private_key_exists' => !empty($json['private_key']),
+            'directory' => $directory,
+            'directory_exists' => is_dir($directory),
+            'directory_writable' => is_writable($directory),
+            'file_written' => file_exists($path),
+            'file_size' => file_exists($path) ? filesize($path) : null,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'ok' => false,
+            'error' => $e->getMessage(),
+            'file' => basename($e->getFile()),
+            'line' => $e->getLine(),
+            'class' => get_class($e),
+        ], 500);
+    }
+});
