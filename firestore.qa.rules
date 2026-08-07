@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// Solo para Firebase Emulator en loopback y proyecto demo-rehabianex.
+// El backend Admin aplica autorización; nunca desplegar estas reglas.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

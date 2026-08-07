@@ -35,4 +35,18 @@ return [
         ],
     ],
 
+    'firebase' => [
+        'project_id' => env('FIREBASE_PROJECT_ID'),
+        'web_api_key' => env('FIREBASE_WEB_API_KEY'),
+        'auth_emulator_host' => env('FIREBASE_AUTH_EMULATOR_HOST'),
+        'credentials' => env('FIREBASE_CREDENTIALS'),
+        'credentials_base64' => env('FIREBASE_CREDENTIALS_BASE64'),
+        'google_application_credentials' => env('GOOGLE_APPLICATION_CREDENTIALS'),
+        'grpc_default_ssl_roots_file_path' => env('GRPC_DEFAULT_SSL_ROOTS_FILE_PATH'),
+    ],
+
+    'admin_bootstrap' => [
+        'password' => env('REHABIANEX_ADMIN_PASSWORD'),
+    ],
+
 ];

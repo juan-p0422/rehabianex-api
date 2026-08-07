@@ -29,18 +29,27 @@ RUN docker-php-ext-install \
 RUN pecl install grpc \
     && docker-php-ext-enable grpc
 
+RUN printf 'expose_php=Off\n' > /usr/local/etc/php/conf.d/rehabianex-security.ini
+
 RUN a2enmod rewrite
 
 RUN cat > /etc/apache2/sites-available/000-default.conf <<'EOF'
+ServerTokens Prod
+ServerSignature Off
+
 <VirtualHost *:80>
     ServerName localhost
     DocumentRoot /var/www/html/public
 
     <Directory /var/www/html/public>
-        Options Indexes FollowSymLinks
+        Options -Indexes +FollowSymLinks
         AllowOverride All
         Require all granted
     </Directory>
+
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
     
     DirectoryIndex index.php index.html
 

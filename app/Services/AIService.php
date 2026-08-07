@@ -2,31 +2,27 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Throwable;
 
 class AIService
 {
     public function askSupervisorAssistant(string $question, array $context): array
     {
-        $apiKey = config('ai.api_key');
-        $baseUrl = config('ai.base_url');
-        $model = config('ai.model');
+        $apiKey = trim((string) config('ai.api_key'));
+        $baseUrl = trim((string) config('ai.base_url'));
+        $model = trim((string) config('ai.model'));
 
-        if (!$apiKey) {
-            return [
-                'ok' => false,
-                'answer' => null,
-                'error' => 'No se configuró AI_API_KEY en el archivo .env.',
-            ];
+        if ($apiKey === '' || $baseUrl === '' || $model === '') {
+            return $this->failure('configuration_missing', false);
         }
 
-        $systemPrompt = $this->buildSystemPrompt();
-        $userPrompt = $this->buildUserPrompt($question, $context);
-
         try {
-            $response = Http::timeout(60)
+            $response = Http::connectTimeout(10)
+                ->timeout(45)
                 ->withHeaders([
-                    'Authorization' => 'Bearer ' . $apiKey,
+                    'Authorization' => 'Bearer '.$apiKey,
                     'Content-Type' => 'application/json',
                     'HTTP-Referer' => config('ai.site_url'),
                     'X-Title' => config('ai.app_name'),
@@ -36,102 +32,109 @@ class AIService
                     'messages' => [
                         [
                             'role' => 'system',
-                            'content' => $systemPrompt,
+                            'content' => $this->buildSystemPrompt(),
                         ],
                         [
                             'role' => 'user',
-                            'content' => $userPrompt,
+                            'content' => $this->buildUserPrompt($question, $context),
                         ],
                     ],
-                    'temperature' => 0.3,
+                    'temperature' => 0.2,
                     'max_tokens' => 700,
                 ]);
 
-            if (!$response->successful()) {
-                return [
-                    'ok' => false,
-                    'answer' => null,
-                    'error' => 'Error al consultar el proveedor de IA.',
-                    'details' => $response->json(),
-                    'status' => $response->status(),
-                ];
+            if ($response->status() === 429) {
+                return $this->failure('provider_rate_limited', true);
             }
 
-            $data = $response->json();
+            if (in_array($response->status(), [408, 504], true)) {
+                return $this->failure('provider_timeout', true);
+            }
 
-            $answer = $data['choices'][0]['message']['content'] ?? null;
+            if (! $response->successful()) {
+                return $this->failure('provider_unavailable', $response->serverError());
+            }
 
-            if (!$answer) {
-                return [
-                    'ok' => false,
-                    'answer' => null,
-                    'error' => 'La IA no devolvió una respuesta válida.',
-                    'details' => $data,
-                ];
+            $answer = trim((string) ($response->json('choices.0.message.content') ?? ''));
+
+            if ($answer === '') {
+                return $this->failure('empty_response', true);
             }
 
             return [
                 'ok' => true,
-                'answer' => trim($answer),
+                'answer' => $answer,
                 'model' => $model,
-                'usage' => $data['usage'] ?? null,
+                'usage' => $this->safeUsage($response->json('usage')),
             ];
-        } catch (\Throwable $e) {
-            return [
-                'ok' => false,
-                'answer' => null,
-                'error' => 'Excepción al consultar IA: ' . $e->getMessage(),
-            ];
+        } catch (ConnectionException) {
+            return $this->failure('provider_timeout', true);
+        } catch (Throwable) {
+            return $this->failure('provider_unavailable', true);
         }
     }
 
     private function buildSystemPrompt(): string
     {
-        return <<<PROMPT
-Eres el asistente de apoyo para supervisores de RehabiAnex, una aplicación de acompañamiento para personas en recuperación por consumo de sustancias.
+        return <<<'PROMPT'
+Eres un asistente de apoyo para supervisores de RehabiAnex.
 
-Tu función:
-- Ayudar al Doctor, Padrino o Supervisor a interpretar registros autorizados de pacientes.
-- Resumir señales emocionales como ansiedad, craving, estado de ánimo, sueño, detonantes y riesgo calculado.
-- Responder de forma clara, breve y útil.
+Usa únicamente el contexto minimizado entregado por el backend.
 
-Reglas estrictas:
-- No diagnostiques.
-- No prescribas tratamientos.
-- No inventes datos.
-- No menciones pacientes que no aparezcan en el contexto.
-- Si no hay datos suficientes, dilo claramente.
-- Usa únicamente el contexto entregado por Laravel.
-- No pidas acceso a bases de datos.
-- No digas que puedes consultar Firebase directamente.
-- No recomiendes medicamentos.
-- No sustituyes terapia, atención médica ni intervención de emergencia.
+Reglas obligatorias:
+- No realices diagnósticos ni afirmes que una persona tiene una enfermedad.
+- No prescribas medicamentos, tratamientos ni cambios de dosis.
+- No proporciones terapia ni simules una sesión terapéutica.
+- No sustituyas atención médica, psicológica, de emergencia ni criterio profesional.
+- No inventes datos ni identidades.
+- No intentes reidentificar referencias como P-001.
+- No solicites teléfonos, correos, nombres, contactos de apoyo ni acceso a Firebase.
+- No repitas posibles datos personales incluidos accidentalmente en la pregunta.
+- Si falta información, indícalo.
+- Ante señales graves, recomienda aplicar el protocolo profesional o de emergencia correspondiente.
 
-Estilo de respuesta:
-- Español claro.
-- Tono profesional, humano y prudente.
-- Organiza la respuesta en viñetas si ayuda.
-- Señala prioridades de seguimiento cuando existan registros de riesgo alto o crítico.
-- Incluye una advertencia breve cuando hables de riesgo: "Esto no representa un diagnóstico; es un resumen de registros reportados por el usuario."
-
-Privacidad:
-- Solo puedes hablar de los pacientes incluidos en el contexto.
-- Si un paciente aparece como anónimo, no intentes identificarlo.
+Incluye cuando corresponda: "Esto no representa un diagnóstico; es un resumen de registros reportados por el usuario."
 PROMPT;
     }
 
     private function buildUserPrompt(string $question, array $context): string
     {
-        $jsonContext = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        $jsonContext = json_encode(
+            $context,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
 
         return <<<PROMPT
 Pregunta del supervisor:
 {$question}
 
-Contexto autorizado entregado por Laravel:
+Contexto autorizado, minimizado y seudonimizado:
 {$jsonContext}
 
-Responde usando únicamente el contexto anterior.
+Responde únicamente con base en este contexto.
 PROMPT;
+    }
+
+    private function failure(string $code, bool $retryable): array
+    {
+        return [
+            'ok' => false,
+            'answer' => null,
+            'error_code' => $code,
+            'retryable' => $retryable,
+        ];
+    }
+
+    private function safeUsage(mixed $usage): ?array
+    {
+        if (! is_array($usage)) {
+            return null;
+        }
+
+        return array_intersect_key($usage, array_flip([
+            'prompt_tokens',
+            'completion_tokens',
+            'total_tokens',
+        ]));
     }
 }
