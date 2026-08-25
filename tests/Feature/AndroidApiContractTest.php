@@ -50,6 +50,7 @@ class AndroidApiContractTest extends TestCase
             'create notification settings' => ['POST', 'api/notification-settings'],
             'update notification settings' => ['PATCH', 'api/notification-settings/{id}'],
             'supervisor AI chat' => ['POST', 'api/ai/supervisor-chat'],
+            'supervisor AI eligibility' => ['GET', 'api/ai/supervisor-chat/eligibility'],
         ];
     }
 
@@ -99,6 +100,12 @@ class AndroidApiContractTest extends TestCase
             'api/ai/supervisor-chat',
             ['api', 'firebase.auth', 'throttle:10,1']
         );
+
+        $this->assertRouteUsesMiddleware(
+            'GET',
+            'api/ai/supervisor-chat/eligibility',
+            ['api', 'firebase.auth', 'throttle:30,1']
+        );
     }
 
     private function findRoute(string $method, string $uri): ?Route
@@ -113,7 +120,7 @@ class AndroidApiContractTest extends TestCase
     }
 
     /**
-     * @param array<int, string> $middleware
+     * @param  array<int, string>  $middleware
      */
     private function assertRouteUsesMiddleware(string $method, string $uri, array $middleware): void
     {

@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AdminSupervisorController;
+use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardSummaryController;
 use App\Http\Controllers\Api\FirestoreCrudController;
 use App\Http\Controllers\Api\SupervisionController;
@@ -42,6 +42,8 @@ Route::middleware('firebase.auth')->group(function () {
 
     Route::post('/ai/supervisor-chat', [SupervisorAIController::class, 'chat'])
         ->middleware('throttle:10,1');
+    Route::get('/ai/supervisor-chat/eligibility', [SupervisorAIController::class, 'eligibility'])
+        ->middleware('throttle:30,1');
 
     foreach (array_keys(config('firestore.resources')) as $resource) {
         Route::get("/{$resource}", [FirestoreCrudController::class, 'index'])->defaults('resource', $resource);

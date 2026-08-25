@@ -134,6 +134,95 @@ class FirestorePermissionsAuditTest extends TestCase
         );
     }
 
+    public function test_legacy_consent_output_has_canonical_status_and_permissions(): void
+    {
+        [, $access] = $this->environment();
+        $legacy = [
+            'explicit_consent' => true,
+            'scope' => ['patient_notes', 'ai_summary'],
+            'revoked_at' => null,
+        ];
+
+        $normalized = $access->normalizeConsentForOutput($legacy);
+
+        $this->assertSame('active', $normalized['status']);
+        $this->assertSame(['patient_notes', 'ai_chat_summary'], $normalized['scope']);
+        $this->assertTrue($normalized['permissions']['patient_notes']);
+        $this->assertTrue($normalized['permissions']['ai_chat_summary']);
+        $this->assertFalse($normalized['permissions']['agenda_events']);
+    }
+
+    public function test_paused_consent_output_remains_paused_with_explicit_flag_false(): void
+    {
+        [, $access] = $this->environment();
+        $normalized = $access->normalizeConsentForOutput([
+            'explicit_consent' => false,
+            'status' => 'paused',
+            'scope' => ['ai_chat_summary'],
+            'paused_at' => '2026-08-24T10:00:00+00:00',
+            'revoked_at' => null,
+        ]);
+
+        $this->assertSame('paused', $normalized['status']);
+        $this->assertFalse($normalized['permissions']['ai_chat_summary']);
+    }
+
+    public function test_latest_duplicate_consent_is_canonical_and_revocation_wins(): void
+    {
+        [$store, $access] = $this->environment();
+        $store->data['consents']['consent-1']['scope'] = ['ai_chat_summary'];
+        $store->data['consents']['consent-1']['updated_at'] = '2026-08-01T10:00:00+00:00';
+        $store->data['consents']['consent-2'] = [
+            'consent_id' => 'consent-2',
+            'patient_uid' => 'patient-1',
+            'supervisor_uid' => 'supervisor-1',
+            'explicit_consent' => false,
+            'status' => 'revoked',
+            'scope' => ['ai_chat_summary'],
+            'revoked_at' => '2026-08-02T10:00:00+00:00',
+            'updated_at' => '2026-08-02T10:00:00+00:00',
+        ];
+
+        $this->assertFalse($access->supervisorCanAccessPatient(
+            'supervisor-1',
+            'patient-1',
+            ['ai_chat_summary']
+        ));
+    }
+
+    public function test_latest_active_duplicate_restores_ai_permission(): void
+    {
+        [$store, $access] = $this->environment();
+        $store->data['consents']['consent-1'] = array_replace(
+            $store->data['consents']['consent-1'],
+            [
+                'explicit_consent' => false,
+                'status' => 'revoked',
+                'scope' => ['ai_chat_summary'],
+                'revoked_at' => '2026-08-01T10:00:00+00:00',
+                'updated_at' => '2026-08-01T10:00:00+00:00',
+            ]
+        );
+        $store->data['consents']['consent-2'] = [
+            'consent_id' => 'consent-2',
+            'patient_uid' => 'patient-1',
+            'supervisor_uid' => 'supervisor-1',
+            'explicit_consent' => true,
+            'scope' => ['chat_ai'],
+            'revoked_at' => null,
+            'updated_at' => '2026-08-02T10:00:00+00:00',
+        ];
+
+        $this->assertTrue($access->supervisorCanAccessPatient(
+            'supervisor-1',
+            'patient-1',
+            ['ai_chat_summary']
+        ));
+        $this->assertTrue(
+            $access->consentPermissions('supervisor-1', 'patient-1')['ai_chat_summary']
+        );
+    }
+
     public function test_patient_can_only_read_active_authorized_verified_supervisor(): void
     {
         [$store, $access] = $this->environment();
@@ -228,6 +317,8 @@ class FirestorePermissionsAuditTest extends TestCase
         $this->assertArrayNotHasKey('document_id', $safe);
         $this->assertArrayNotHasKey('role', $safe);
         $this->assertArrayNotHasKey('internal_flag', $safe);
+        $this->assertTrue($safe['permissions']['patient_notes']);
+        $this->assertFalse($safe['permissions']['ai_chat_summary']);
 
         $store->data['consents']['consent-1']['scope'][] = 'patient_phone';
         $withPhone = $access->sanitizeForSupervisor('patients', $patient, 'supervisor-1');

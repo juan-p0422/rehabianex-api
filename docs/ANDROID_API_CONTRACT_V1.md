@@ -1521,9 +1521,32 @@ Body: ninguno.
   "ok": true,
   "supervisor_uid": "supervisor_uid",
   "count": 1,
-  "patients": []
+  "patients": [
+    {
+      "uid": "patient_uid",
+      "patient_uid": "patient_uid",
+      "display_name": "Paciente",
+      "permissions": {
+        "ai_chat_summary": true
+      }
+    }
+  ],
+  "data": [
+    {
+      "uid": "patient_uid",
+      "patient_uid": "patient_uid",
+      "display_name": "Paciente",
+      "permissions": {
+        "ai_chat_summary": true
+      }
+    }
+  ]
 }
 ```
+
+`patients` y `data` contienen los mismos elementos. Cada paciente incluye un
+mapa `permissions`; Android debe usar `permissions.ai_chat_summary` para la
+habilitación rápida del Chat IA y no inferirla a partir de la mera vinculación.
 
 Errores: `401`, `403`, `500`.
 
@@ -2086,6 +2109,35 @@ Envolvente: respuesta especializada de IA.
 Android producción: **sí**. Android debe mostrar `answer` para `ai`, `local` y
 `fallback_local`. Android no debe esperar ni consultar historial persistente.
 
+## 29.1 Elegibilidad del Chatbot IA
+
+**Método y ruta:** `GET /ai/supervisor-chat/eligibility`
+
+**Acceso:** supervisor autorizado. Límite: 30 solicitudes por minuto.
+
+Body: ninguno. El UID se toma exclusivamente de la sesión autenticada.
+
+**Respuesta 200:**
+
+```json
+{
+  "ok": true,
+  "eligible": true,
+  "eligible_patients_count": 1,
+  "required_scope": "ai_chat_summary"
+}
+```
+
+`eligible=true` requiere al menos un paciente con relación aceptada y el
+consentimiento canónico activo para `ai_chat_summary`. No requiere notas
+recientes ni el scope separado `patient_notes`.
+
+Errores: `401`, `403`, `429`, `500`.
+
+Android debe preferir este endpoint para decidir el estado del compositor. El
+campo `permissions.ai_chat_summary` de la lista de pacientes se mantiene como
+proyección compatible para interfaces que ya cargan dicha lista.
+
 ## Garantías de compatibilidad
 
 Durante Fase 3:
@@ -2241,13 +2293,19 @@ Los endpoints consultados por supervisor usan allowlists por recurso.
 ```text
 uid, patient_uid, display_name, full_name, nickname, age, gender,
 is_anonymous, privacy_mode, sobriety_start_date, primary_risks,
-supervision_status
+supervision_status, permissions
 ```
 
 `email`, rol, flags administrativos y campos internos nunca se entregan. Cuando
 `privacy_mode=true` o `is_anonymous=true`, `full_name` es `null` y
 `display_name` usa nickname o una referencia segura. `phone` solo aparece con
 scope explicito `patient_phone`.
+
+Los consentimientos legacy sin `status` se proyectan como `active` cuando
+`explicit_consent=true` y no tienen `revoked_at` ni `paused_at`. La respuesta de
+`GET /consents` incluye además `permissions` booleanos efectivos. Si existen
+duplicados para la misma pareja, el documento con timestamp más reciente es el
+canónico; una pausa o revocación reciente bloquea documentos activos antiguos.
 
 Las notas, contactos, agenda y logros usan proyecciones propias y requieren,
 respectivamente, `patient_notes`, `support_contacts`, `agenda_events` y

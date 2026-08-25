@@ -4,10 +4,26 @@ namespace App\Services;
 
 use App\Support\PatientDisplayName;
 use Carbon\Carbon;
+use Google\Cloud\Core\Timestamp;
 use Illuminate\Http\Request;
 
 class FirestoreAccessService
 {
+    private const CONSENT_SCOPE_ALIASES = [
+        'ai_summary' => 'ai_chat_summary',
+        'chat_ai' => 'ai_chat_summary',
+        'summary_ai' => 'ai_chat_summary',
+    ];
+
+    private const CONSENT_SCOPES = [
+        'patient_notes',
+        'agenda_events',
+        'support_contacts',
+        'ai_chat_summary',
+        'patient_achievements',
+        'patient_phone',
+    ];
+
     private $db;
 
     public function __construct(FirebaseService $firebase)
@@ -593,6 +609,10 @@ class FirestoreAccessService
             $data['type'] = $data['type'] ?? $data['request_type'] ?? 'link';
         }
 
+        if ($resource === 'consents') {
+            $data = $this->normalizeConsentForOutput($data);
+        }
+
         if ($resource === 'supervision-requests' && $this->role($request) === 'supervisor') {
             $patientUid = (string) ($data['patient_uid'] ?? '');
 
@@ -629,8 +649,14 @@ class FirestoreAccessService
             $safe['display_name'] = PatientDisplayName::forSupervisor($data, $reference);
             $safe['safe_display_name'] = $safe['display_name'];
             $safe['full_name'] = $privateIdentity ? null : ($data['full_name'] ?? null);
+            $grantedScopes = $this->grantedScopes($supervisorUid, $patientUid);
+            $safe['permissions'] = [];
 
-            if (in_array('patient_phone', $this->grantedScopes($supervisorUid, $patientUid), true)) {
+            foreach (self::CONSENT_SCOPES as $scope) {
+                $safe['permissions'][$scope] = in_array($scope, $grantedScopes, true);
+            }
+
+            if ($safe['permissions']['patient_phone']) {
                 $safe['phone'] = $data['phone'] ?? null;
             }
 
@@ -710,39 +736,60 @@ class FirestoreAccessService
             return false;
         }
 
-        $documents = $this->db->collection('consents')
-            ->where('patient_uid', '=', $patientUid)
-            ->documents();
+        $consent = $this->canonicalConsent($supervisorUid, $patientUid);
 
-        foreach ($documents as $document) {
-            if (! $document->exists()) {
-                continue;
-            }
-
-            $consent = $document->data();
-
-            if (($consent['supervisor_uid'] ?? null) !== $supervisorUid
-                || ($consent['explicit_consent'] ?? false) !== true
-                || ($consent['status'] ?? 'active') !== 'active'
-                || ! empty($consent['revoked_at'])) {
-                continue;
-            }
-
-            $grantedScopes = is_array($consent['scope'] ?? null)
-                ? $consent['scope']
-                : [];
-
-            if ($scopes === [] || array_diff($scopes, $grantedScopes) === []) {
-                return true;
-            }
+        if ($consent === null || ! $this->isActiveConsent($consent)) {
+            return false;
         }
 
-        return false;
+        $requestedScopes = $this->normalizeScopeNames($scopes);
+        $grantedScopes = $this->consentScopes($consent);
+
+        return $requestedScopes === [] || array_diff($requestedScopes, $grantedScopes) === [];
     }
 
     private function grantedScopes(string $supervisorUid, string $patientUid): array
     {
-        $granted = [];
+        $consent = $this->canonicalConsent($supervisorUid, $patientUid);
+
+        return $consent !== null && $this->isActiveConsent($consent)
+            ? $this->consentScopes($consent)
+            : [];
+    }
+
+    public function consentPermissions(string $supervisorUid, string $patientUid): array
+    {
+        $granted = $this->grantedScopes($supervisorUid, $patientUid);
+        $permissions = [];
+
+        foreach (self::CONSENT_SCOPES as $scope) {
+            $permissions[$scope] = in_array($scope, $granted, true);
+        }
+
+        return $permissions;
+    }
+
+    public function normalizeConsentForOutput(array $consent): array
+    {
+        $active = $this->isActiveConsent($consent);
+        $scopes = $this->consentScopes($consent);
+        $permissions = [];
+
+        foreach (self::CONSENT_SCOPES as $scope) {
+            $permissions[$scope] = $active && in_array($scope, $scopes, true);
+        }
+
+        $consent['status'] = $this->consentStatus($consent);
+        $consent['scope'] = $scopes;
+        $consent['permissions'] = $permissions;
+
+        return $consent;
+    }
+
+    private function canonicalConsent(string $supervisorUid, string $patientUid): ?array
+    {
+        $canonical = null;
+        $canonicalTimestamp = PHP_INT_MIN;
         $documents = $this->db->collection('consents')
             ->where('patient_uid', '=', $patientUid)
             ->documents();
@@ -755,16 +802,108 @@ class FirestoreAccessService
             $consent = $document->data();
 
             if (($consent['supervisor_uid'] ?? null) !== $supervisorUid
-                || ($consent['explicit_consent'] ?? false) !== true
-                || ($consent['status'] ?? 'active') !== 'active'
-                || ! empty($consent['revoked_at'])) {
+                || ! empty($consent['deleted_at'])) {
                 continue;
             }
 
-            $granted = array_merge($granted, is_array($consent['scope'] ?? null) ? $consent['scope'] : []);
+            $timestamp = $this->consentTimestamp($consent);
+
+            if ($canonical === null || $timestamp > $canonicalTimestamp) {
+                $canonical = $consent;
+                $canonicalTimestamp = $timestamp;
+            }
         }
 
-        return array_values(array_unique($granted));
+        return $canonical;
+    }
+
+    private function isActiveConsent(array $consent): bool
+    {
+        return ($consent['explicit_consent'] ?? false) === true
+            && $this->consentStatus($consent) === 'active'
+            && empty($consent['revoked_at'])
+            && empty($consent['paused_at']);
+    }
+
+    private function consentStatus(array $consent): string
+    {
+        if (! empty($consent['revoked_at'])
+            || ($consent['status'] ?? null) === 'revoked') {
+            return 'revoked';
+        }
+
+        if (! empty($consent['paused_at']) || ($consent['status'] ?? null) === 'paused') {
+            return 'paused';
+        }
+
+        if (($consent['explicit_consent'] ?? null) === false) {
+            return 'revoked';
+        }
+
+        return ($consent['explicit_consent'] ?? false) === true
+            && in_array($consent['status'] ?? 'active', ['active', null], true)
+                ? 'active'
+                : (string) ($consent['status'] ?? 'revoked');
+    }
+
+    private function consentScopes(array $consent): array
+    {
+        $scopes = $consent['scope'] ?? $consent['scopes'] ?? [];
+
+        if (! is_array($scopes)) {
+            $scopes = [];
+        }
+
+        if (is_array($consent['permissions'] ?? null)) {
+            foreach ($consent['permissions'] as $scope => $granted) {
+                if ($granted === true && is_string($scope)) {
+                    $scopes[] = $scope;
+                }
+            }
+        }
+
+        return array_values(array_unique($this->normalizeScopeNames($scopes)));
+    }
+
+    private function normalizeScopeNames(array $scopes): array
+    {
+        $normalized = [];
+
+        foreach ($scopes as $scope) {
+            if (! is_string($scope) || trim($scope) === '') {
+                continue;
+            }
+
+            $scope = trim($scope);
+            $normalized[] = self::CONSENT_SCOPE_ALIASES[$scope] ?? $scope;
+        }
+
+        return array_values(array_unique($normalized));
+    }
+
+    private function consentTimestamp(array $consent): int
+    {
+        foreach (['updated_at', 'accepted_at', 'created_at'] as $field) {
+            $value = $consent[$field] ?? null;
+
+            if ($value instanceof Timestamp) {
+                return $value->get()->getTimestamp();
+            }
+
+            if ($value instanceof \DateTimeInterface) {
+                return $value->getTimestamp();
+            }
+
+            if (is_numeric($value)) {
+                return (int) $value;
+            }
+
+            if (is_string($value) && ($timestamp = strtotime($value)) !== false) {
+                return $timestamp;
+            }
+        }
+
+        return 0;
     }
 
     private function assignedSupervisorUid(string $patientUid): ?string

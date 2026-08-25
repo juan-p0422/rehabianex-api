@@ -49,6 +49,9 @@ class SupervisedPatientsResponseContractTest extends TestCase
                 'patient_uid' => 'patient-1',
                 'display_name' => 'Paciente ABC123',
                 'full_name' => null,
+                'permissions' => [
+                    'ai_chat_summary' => true,
+                ],
             ]);
 
         $response = (new PatientController($firebase, $access))->supervisedPatients(
@@ -59,5 +62,6 @@ class SupervisedPatientsResponseContractTest extends TestCase
 
         $this->assertSame($payload['patients'], $payload['data']);
         $this->assertSame(1, $payload['count']);
+        $this->assertTrue($payload['patients'][0]['permissions']['ai_chat_summary']);
     }
 }

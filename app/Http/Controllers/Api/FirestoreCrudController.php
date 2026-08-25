@@ -146,13 +146,16 @@ class FirestoreCrudController extends Controller
             $data['updated_at'] = $now;
 
             $this->db->collection($model::collection())->document($documentId)->set($data);
+            $responseData = $resource === 'consents'
+                ? $this->access->normalizeConsentForOutput($data)
+                : $data;
 
             return response()->json([
                 'ok' => true,
                 'message' => 'Documento creado correctamente.',
                 'collection' => $model::collection(),
                 'id' => $documentId,
-                'data' => $this->withDocumentId($data, $documentId),
+                'data' => $this->withDocumentId($responseData, $documentId),
             ], 201);
         } catch (Throwable $e) {
             return $this->error($e);
@@ -647,6 +650,10 @@ class FirestoreCrudController extends Controller
     {
         if ($resource === 'patients') {
             $updated = $this->ownerPatientSnapshot($updated, $id, $collection);
+        }
+
+        if ($resource === 'consents') {
+            $updated = $this->access->normalizeConsentForOutput($updated);
         }
 
         $data = $this->withDocumentId($updated, $id);

@@ -87,6 +87,7 @@ class SupervisorAIController extends Controller
 
         if (! $aiResponse['ok']) {
             $fallbackAnswer = $this->generateSafeLocalAnswer(strtolower($question), $context);
+
             return response()->json([
                 'ok' => true,
                 'mode' => 'fallback_local',
@@ -122,6 +123,25 @@ class SupervisorAIController extends Controller
         ]);
     }
 
+    public function eligibility(Request $request)
+    {
+        if ($this->access->role($request) !== 'supervisor') {
+            abort(403, 'Solo los supervisores pueden usar este endpoint.');
+        }
+
+        $supervisorUid = $this->access->uid($request);
+        $this->access->assertAuthorizedSupervisor($supervisorUid);
+        $eligiblePatients = $this->getAuthorizedPatients($supervisorUid);
+        $count = count($eligiblePatients);
+
+        return response()->json([
+            'ok' => true,
+            'eligible' => $count > 0,
+            'eligible_patients_count' => $count,
+            'required_scope' => 'ai_chat_summary',
+        ]);
+    }
+
     private function disabledHistoryState(): array
     {
         return [
@@ -151,6 +171,7 @@ class SupervisorAIController extends Controller
                     $patientUid,
                     ['ai_chat_summary']
                 )) {
+                    $patient['uid'] = $patientUid;
                     $patients[] = $patient;
                 }
             }

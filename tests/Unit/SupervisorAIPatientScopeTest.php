@@ -78,6 +78,78 @@ class SupervisorAIPatientScopeTest extends TestCase
         $controller->chat($request);
     }
 
+    public function test_eligibility_is_true_with_ai_scope_even_when_no_notes_exist(): void
+    {
+        $patient = $this->snapshot('patient-ai', [
+            'supervisor_uid' => 'supervisor-1',
+            'wants_supervision' => true,
+        ]);
+        $query = Mockery::mock();
+        $query->shouldReceive('where')->twice()->andReturnSelf();
+        $query->shouldReceive('documents')->once()->andReturn([$patient]);
+        $database = Mockery::mock();
+        $database->shouldReceive('collection')->once()->with('patients')->andReturn($query);
+        $firebase = Mockery::mock(FirebaseService::class);
+        $firebase->shouldReceive('db')->once()->andReturn($database);
+        $access = Mockery::mock(FirestoreAccessService::class);
+        $access->shouldReceive('role')->once()->andReturn('supervisor');
+        $access->shouldReceive('uid')->once()->andReturn('supervisor-1');
+        $access->shouldReceive('assertAuthorizedSupervisor')->once()->with('supervisor-1');
+        $access->shouldReceive('supervisorCanAccessPatient')
+            ->once()
+            ->with('supervisor-1', 'patient-ai', ['ai_chat_summary'])
+            ->andReturnTrue();
+        $controller = new SupervisorAIController(
+            $firebase,
+            Mockery::mock(AIService::class),
+            $access
+        );
+        $request = Request::create('/api/ai/supervisor-chat/eligibility', 'GET');
+
+        $response = $controller->eligibility($request);
+        $payload = $response->getData(true);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($payload['eligible']);
+        $this->assertSame(1, $payload['eligible_patients_count']);
+        $this->assertSame('ai_chat_summary', $payload['required_scope']);
+    }
+
+    public function test_eligibility_is_false_when_ai_scope_is_missing(): void
+    {
+        $patient = $this->snapshot('patient-notes-only', [
+            'uid' => 'patient-notes-only',
+            'supervisor_uid' => 'supervisor-1',
+            'wants_supervision' => true,
+        ]);
+        $query = Mockery::mock();
+        $query->shouldReceive('where')->twice()->andReturnSelf();
+        $query->shouldReceive('documents')->once()->andReturn([$patient]);
+        $database = Mockery::mock();
+        $database->shouldReceive('collection')->once()->with('patients')->andReturn($query);
+        $firebase = Mockery::mock(FirebaseService::class);
+        $firebase->shouldReceive('db')->once()->andReturn($database);
+        $access = Mockery::mock(FirestoreAccessService::class);
+        $access->shouldReceive('role')->once()->andReturn('supervisor');
+        $access->shouldReceive('uid')->once()->andReturn('supervisor-1');
+        $access->shouldReceive('assertAuthorizedSupervisor')->once()->with('supervisor-1');
+        $access->shouldReceive('supervisorCanAccessPatient')
+            ->once()
+            ->with('supervisor-1', 'patient-notes-only', ['ai_chat_summary'])
+            ->andReturnFalse();
+        $controller = new SupervisorAIController(
+            $firebase,
+            Mockery::mock(AIService::class),
+            $access
+        );
+        $request = Request::create('/api/ai/supervisor-chat/eligibility', 'GET');
+
+        $payload = $controller->eligibility($request)->getData(true);
+
+        $this->assertFalse($payload['eligible']);
+        $this->assertSame(0, $payload['eligible_patients_count']);
+    }
+
     public function test_provider_failure_returns_stable_fallback_local_with_http_200(): void
     {
         $patients = Mockery::mock();
