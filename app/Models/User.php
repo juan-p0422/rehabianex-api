@@ -48,6 +48,9 @@ class User extends Authenticatable
         ];
     }
 
+    /**
+     * @deprecated Relación legada; los tokens FCM runtime se persisten en Firestore.
+     */
     public function fcmTokens(): HasMany
     {
         return $this->hasMany(UserFcmToken::class);

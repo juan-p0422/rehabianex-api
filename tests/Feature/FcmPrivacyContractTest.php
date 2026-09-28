@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\FcmTokenRepository;
 use App\Jobs\SendFcmNotification;
-use App\Models\UserFcmToken;
 use App\Services\FcmNotificationDispatcher;
 use App\Services\FcmRecipientAuthorizer;
 use App\Services\FcmService;
@@ -13,11 +13,22 @@ use Illuminate\Support\Facades\Queue;
 use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Messaging\CloudMessage;
 use RuntimeException;
+use Tests\Fakes\InMemoryFcmTokenRepository;
 use Tests\TestCase;
 
 class FcmPrivacyContractTest extends TestCase
 {
     use RefreshDatabase;
+
+    private InMemoryFcmTokenRepository $tokens;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->tokens = new InMemoryFcmTokenRepository;
+        $this->app->instance(FcmTokenRepository::class, $this->tokens);
+    }
 
     public function test_relapse_notifies_only_an_authorized_supervisor_with_opaque_data(): void
     {
@@ -384,7 +395,7 @@ class FcmPrivacyContractTest extends TestCase
                 return [];
             });
 
-        (new FcmService($messaging))->sendToUser(
+        (new FcmService($this->tokens, $messaging))->sendToUser(
             'supervisor-1',
             'risk_alert',
             '/patients/priority',
@@ -421,7 +432,7 @@ class FcmPrivacyContractTest extends TestCase
                 return [];
             });
 
-        (new FcmService($messaging))->sendToUser(
+        (new FcmService($this->tokens, $messaging))->sendToUser(
             'admin-1',
             'supervision_request_conflict',
             '/admin/supervision-conflicts/conflict_followup',
@@ -479,12 +490,6 @@ class FcmPrivacyContractTest extends TestCase
 
     private function activeToken(string $userId): void
     {
-        $token = new UserFcmToken([
-            'fcm_token' => str_repeat('safe-token-', 10),
-            'platform' => 'android',
-        ]);
-        $token->user_id = $userId;
-        $token->is_active = true;
-        $token->save();
+        $this->tokens->seedToken($userId, str_repeat('safe-token-', 10));
     }
 }

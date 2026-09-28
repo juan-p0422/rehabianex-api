@@ -15,9 +15,10 @@ Configurar mediante secretos y variables del entorno de Render, nunca en Git:
 
 - `APP_ENV`: `staging` durante la validación controlada.
 - `APP_KEY`: secreto propio del servicio.
-- Conexión de base de datos y cache requeridas por Laravel.
-- `QUEUE_CONNECTION`: `sync` para el smoke inicial o `database` con worker
-  activo.
+- `QUEUE_CONNECTION=sync` para el smoke inicial. Los jobs se ejecutan dentro
+  del proceso que origina el disparador y no requieren la tabla `jobs`.
+- `CACHE_STORE=file` para los locks de `ShouldBeUnique` en una única instancia
+  de smoke, sin requerir la tabla `cache`.
 - `FIREBASE_PROJECT_ID`: identificador técnico del proyecto Firebase.
 - Credenciales Firebase mediante una sola estrategia segura:
   - Secret File de Render y `FIREBASE_CREDENTIALS` apuntando a su ruta; o
@@ -36,6 +37,12 @@ privacidad del transporte FCM.
 No definir credenciales reales en `.env.example`, comandos, capturas, tickets o
 logs. No usar simultáneamente dos fuentes de credenciales.
 
+Los tokens se almacenan en la colección Firestore `fcm_tokens`; con cola
+`sync` y cache `file`, FCM no requiere `DB_*`, PostgreSQL, un archivo SQLite
+persistente, las tablas `jobs` o `cache`, ni ejecutar la migración legada
+`user_fcm_tokens` en Render. Otros subsistemas Laravel deben evaluar sus propias
+necesidades de persistencia por separado.
+
 ## Configuración segura inicial
 
 El primer despliegue debe iniciar sin entregas reales:
@@ -43,6 +50,8 @@ El primer despliegue debe iniciar sin entregas reales:
 ```dotenv
 FCM_ENABLED=false
 FCM_DRY_RUN=true
+QUEUE_CONNECTION=sync
+CACHE_STORE=file
 FCM_CRITICAL_ALERTS_ENABLED=false
 FCM_ADMIN_NOTIFICATIONS_ENABLED=false
 FCM_SUPERVISOR_CLINICAL_ALERTS_ENABLED=false
@@ -62,6 +71,7 @@ Usar un solo dispositivo y una cuenta técnica sin información real:
 FCM_ENABLED=true
 FCM_DRY_RUN=false
 QUEUE_CONNECTION=sync
+CACHE_STORE=file
 FCM_CRITICAL_ALERTS_ENABLED=false
 FCM_ADMIN_NOTIFICATIONS_ENABLED=false
 FCM_SUPERVISOR_CLINICAL_ALERTS_ENABLED=false
@@ -72,6 +82,14 @@ El endpoint `POST /api/notifications/test` no acepta payload arbitrario, exige
 autenticación y solo permite entrega real en entornos `local` o `staging`. El
 smoke debe confirmar un único mensaje `data-only`, texto genérico, destino
 seguro y ausencia de token completo en logs.
+
+Con `QUEUE_CONNECTION=sync`, `SendFcmNotification` y los disparadores directos
+se ejecutan inmediatamente en el mismo proceso HTTP. Esta configuración es
+adecuada para el smoke controlado. El `delay()` de `SendAppointmentReminder` no
+garantiza una ejecución futura real con el driver síncrono; validar recordatorios
+programados requiere posteriormente scheduler/worker, una cola asíncrona
+durable o el mecanismo local Android permitido. Esa limitación no bloquea el
+smoke de transporte FCM inmediato.
 
 Los flags clínicos, administrativos o de vulnerabilidad se habilitan de uno en
 uno únicamente durante casos E2E autorizados. Deben volver a `false` al terminar
@@ -97,15 +115,14 @@ En el servicio de staging, sin imprimir el entorno:
 php artisan config:clear
 php artisan config:cache
 php artisan route:list --path=api/notifications -v
-php artisan migrate --force
 ```
 
-La migración debe ejecutarse sobre la base de staging respaldada y revisada.
-No se deben ejecutar comandos destructivos, seeders de demostración ni tareas
-que copien usuarios reales.
+No se deben ejecutar migraciones SQL para FCM, comandos destructivos, seeders
+de demostración ni tareas que copien usuarios reales.
 
-Si se usa `QUEUE_CONNECTION=database`, crear un Background Worker con el mismo
-release y ejecutar:
+Si en una fase futura se habilitan workers, múltiples instancias o programación
+durable, evaluar Redis u otro backend compartido para cola y locks. Configurar
+entonces un Background Worker con el mismo release y ejecutar:
 
 ```bash
 php artisan queue:work --queue=default --tries=1 --timeout=60

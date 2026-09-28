@@ -51,9 +51,43 @@ después de validar sesión, rol y permisos.
 5. Antes de limpiar la sesión, Android invoca
    `DELETE /api/notifications/fcm-token`. La revocación queda limitada al
    usuario autenticado.
-6. El backend marca inactivos los tokens que Firebase reporta como no
-   registrados. Los tokens se ocultan en serialización y no se escriben en
-   logs.
+6. El backend marca inactivos en Firestore los tokens que Firebase reporta
+   como no registrados. El valor completo no se devuelve en respuestas ni se
+   escribe en logs.
+
+## Persistencia de tokens en Firestore
+
+La persistencia runtime de tokens FCM usa la colección `fcm_tokens`. El ID del
+documento es `sha256(token)`, por lo que el valor del token no aparece en rutas
+ni identificadores de documentos. Cada documento contiene únicamente:
+
+- `token` y `token_hash`, necesarios para direccionamiento e invalidación;
+- `firebase_uid`, obtenido exclusivamente de Firebase Authentication;
+- `platform=android`;
+- metadatos técnicos opcionales: `device_id`, `app_version`, `timezone` y
+  `locale`;
+- `is_active`, `created_at`, `last_seen_at`, `revoked_at` e
+  `invalidated_at`.
+
+No se almacenan roles, nombres, alias, correos, teléfonos ni datos clínicos.
+El registro reasigna atómicamente el documento determinista al UID de la
+sesión vigente. La revocación es idempotente y puede afectar un token concreto
+o todos los tokens activos del usuario autenticado.
+
+`UserFcmToken` y la migración `user_fcm_tokens` se conservan temporalmente como
+legado local, pero controlador, servicio, autorizador y transporte FCM ya no
+los usan en runtime. FCM en Render no requiere `DB_*`, PostgreSQL, SQLite
+persistente, las tablas `jobs` o `cache`, ni una migración SQL cuando el smoke
+usa `QUEUE_CONNECTION=sync` y `CACHE_STORE=file`. Esto no elimina posibles
+necesidades SQL de otros subsistemas Laravel ajenos a FCM.
+
+La cola síncrona ejecuta `SendFcmNotification` dentro del proceso que origina
+el disparador y permite validar entregas inmediatas. No garantiza que el
+`delay()` de `SendAppointmentReminder` se ejecute realmente en una hora futura.
+La agenda programada requiere en una fase posterior scheduler/worker, una cola
+asíncrona durable o el fallback local Android permitido. Si se habilitan
+workers o múltiples instancias, se debe evaluar Redis u otro cache compartido;
+no forma parte de este smoke Render.
 
 ## Tipos, rutas y estado de dominio
 
@@ -97,14 +131,14 @@ intervenciones clínicas ni prioridad de vulnerabilidad.
 - `php artisan config:clear`: correcto.
 - `php artisan route:list --path=api/notifications -v`: tres rutas protegidas
   por autenticación Firebase y throttling.
-- `php artisan test --filter=Fcm`: 36 pruebas, 172 aserciones.
-- `php artisan test`: 220 pruebas aprobadas, 1252 aserciones y un smoke real
+- `php artisan test --filter=Fcm`: 41 pruebas, 215 aserciones.
+- `php artisan test`: 225 pruebas aprobadas, 1295 aserciones y un smoke real
   omitido intencionalmente.
 - `composer validate`: válido, con advertencias no bloqueantes por restricciones
   exactas de versiones.
 - `composer audit --locked`: sin avisos de vulnerabilidad.
 - Configuración efectiva al cierre: FCM deshabilitado, dry-run activo, cola
-  `sync` y flags sensibles deshabilitados.
+  `sync`, cache `file` y flags sensibles deshabilitados.
 
 ## Evidencia local Android
 

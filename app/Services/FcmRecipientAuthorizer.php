@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\UserFcmToken;
+use App\Contracts\FcmTokenRepository;
 use Throwable;
 
 class FcmRecipientAuthorizer
@@ -12,6 +12,7 @@ class FcmRecipientAuthorizer
     public function __construct(
         FirebaseService $firebase,
         private FirestoreAccessService $access,
+        private FcmTokenRepository $tokens,
     ) {
         $this->db = $firebase->db();
     }
@@ -113,11 +114,6 @@ class FcmRecipientAuthorizer
 
     private function hasActiveToken(string $userId): bool
     {
-        return UserFcmToken::query()
-            ->where('user_id', $userId)
-            ->where('platform', 'android')
-            ->where('is_active', true)
-            ->whereNull('revoked_at')
-            ->exists();
+        return $this->tokens->countActiveTokensForUser($userId) > 0;
     }
 }

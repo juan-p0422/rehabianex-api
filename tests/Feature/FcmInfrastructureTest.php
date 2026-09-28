@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\FcmTokenRepository;
 use App\Http\Controllers\Api\FcmTokenController;
 use App\Http\Controllers\Api\FirestoreCrudController;
 use App\Http\Controllers\Api\SupervisionController;
@@ -27,11 +28,22 @@ use Kreait\Firebase\Exception\Messaging\NotFound;
 use Kreait\Firebase\Messaging\CloudMessage;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Fakes\InMemoryFcmTokenRepository;
 use Tests\TestCase;
 
 class FcmInfrastructureTest extends TestCase
 {
     use RefreshDatabase;
+
+    private InMemoryFcmTokenRepository $tokens;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->tokens = new InMemoryFcmTokenRepository;
+        $this->app->instance(FcmTokenRepository::class, $this->tokens);
+    }
 
     public function test_firestore_crud_controller_resolves_the_fcm_dispatcher(): void
     {
@@ -107,32 +119,31 @@ class FcmInfrastructureTest extends TestCase
         ]);
         $registerRequest->attributes->set('firebase_uid', 'firebase-user-id');
 
-        $response = (new FcmTokenController)->register($registerRequest);
+        $response = (new FcmTokenController($this->tokens))->register($registerRequest);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringNotContainsString($rawToken, $response->getContent());
-        $this->assertDatabaseHas('user_fcm_tokens', [
-            'user_id' => 'firebase-user-id',
-            'fcm_token' => $rawToken,
-            'is_active' => true,
-        ]);
+        $registered = $this->tokens->documentForToken($rawToken);
+        $this->assertSame('firebase-user-id', $registered['firebase_uid']);
+        $this->assertTrue($registered['is_active']);
+        $this->assertSame('android', $registered['platform']);
+        $this->assertSame(hash('sha256', $rawToken), $registered['token_hash']);
+        $this->assertArrayNotHasKey('firebase_uid', $response->getData(true)['data']);
 
         $revokeRequest = Request::create('/api/notifications/fcm-token', 'DELETE', [
             'fcm_token' => $rawToken,
         ]);
         $revokeRequest->attributes->set('firebase_uid', 'firebase-user-id');
 
-        $revokeResponse = (new FcmTokenController)->revoke($revokeRequest);
+        $revokeResponse = (new FcmTokenController($this->tokens))->revoke($revokeRequest);
 
         $this->assertSame(204, $revokeResponse->getStatusCode());
         $this->assertStringNotContainsString($rawToken, $revokeResponse->getContent());
-        $this->assertDatabaseHas('user_fcm_tokens', [
-            'user_id' => 'firebase-user-id',
-            'fcm_token' => $rawToken,
-            'is_active' => false,
-        ]);
+        $revoked = $this->tokens->documentForToken($rawToken);
+        $this->assertFalse($revoked['is_active']);
+        $this->assertNotNull($revoked['revoked_at']);
 
-        $secondRevokeResponse = (new FcmTokenController)->revoke($revokeRequest);
+        $secondRevokeResponse = (new FcmTokenController($this->tokens))->revoke($revokeRequest);
 
         $this->assertSame(204, $secondRevokeResponse->getStatusCode());
     }
@@ -146,7 +157,7 @@ class FcmInfrastructureTest extends TestCase
             'device_id' => 'qa-role-switch-device',
         ]);
         $patientRequest->attributes->set('firebase_uid', 'qa-patient');
-        (new FcmTokenController)->register($patientRequest);
+        (new FcmTokenController($this->tokens))->register($patientRequest);
 
         $supervisorRequest = Request::create('/api/notifications/fcm-token', 'POST', [
             'fcm_token' => $rawToken,
@@ -154,37 +165,62 @@ class FcmInfrastructureTest extends TestCase
             'device_id' => 'qa-role-switch-device',
         ]);
         $supervisorRequest->attributes->set('firebase_uid', 'qa-supervisor');
-        (new FcmTokenController)->register($supervisorRequest);
+        (new FcmTokenController($this->tokens))->register($supervisorRequest);
 
-        $this->assertDatabaseCount('user_fcm_tokens', 1);
-        $this->assertDatabaseHas('user_fcm_tokens', [
-            'user_id' => 'qa-supervisor',
-            'is_active' => true,
-        ]);
+        $this->assertCount(1, $this->tokens->allDocuments());
+        $this->assertSame('qa-supervisor', $this->tokens->documentForToken($rawToken)['firebase_uid']);
+        $this->assertTrue($this->tokens->documentForToken($rawToken)['is_active']);
 
         $oldOwnerRevoke = Request::create('/api/notifications/fcm-token', 'DELETE', [
             'fcm_token' => $rawToken,
         ]);
         $oldOwnerRevoke->attributes->set('firebase_uid', 'qa-patient');
-        (new FcmTokenController)->revoke($oldOwnerRevoke);
+        (new FcmTokenController($this->tokens))->revoke($oldOwnerRevoke);
 
-        $this->assertDatabaseHas('user_fcm_tokens', [
-            'user_id' => 'qa-supervisor',
-            'is_active' => true,
-            'revoked_at' => null,
-        ]);
+        $this->assertSame('qa-supervisor', $this->tokens->documentForToken($rawToken)['firebase_uid']);
+        $this->assertTrue($this->tokens->documentForToken($rawToken)['is_active']);
+        $this->assertNull($this->tokens->documentForToken($rawToken)['revoked_at']);
 
         $currentOwnerRevoke = Request::create('/api/notifications/fcm-token', 'DELETE', [
             'fcm_token' => $rawToken,
         ]);
         $currentOwnerRevoke->attributes->set('firebase_uid', 'qa-supervisor');
-        (new FcmTokenController)->revoke($currentOwnerRevoke);
+        (new FcmTokenController($this->tokens))->revoke($currentOwnerRevoke);
 
-        $this->assertDatabaseHas('user_fcm_tokens', [
-            'user_id' => 'qa-supervisor',
-            'is_active' => false,
+        $this->assertFalse($this->tokens->documentForToken($rawToken)['is_active']);
+        $this->assertNotNull($this->tokens->documentForToken($rawToken)['revoked_at']);
+    }
+
+    public function test_revoke_without_token_revokes_all_active_tokens_and_is_idempotent(): void
+    {
+        $this->activeToken('firebase-user-id', 'first');
+        $this->activeToken('firebase-user-id', 'second');
+        $request = Request::create('/api/notifications/fcm-token', 'DELETE');
+        $request->attributes->set('firebase_uid', 'firebase-user-id');
+        $controller = new FcmTokenController($this->tokens);
+
+        $this->assertSame(204, $controller->revoke($request)->getStatusCode());
+        $this->assertSame(0, $this->tokens->countActiveTokensForUser('firebase-user-id'));
+        $this->assertSame(204, $controller->revoke($request)->getStatusCode());
+    }
+
+    public function test_registration_rejects_unexpected_or_sensitive_fields(): void
+    {
+        $request = Request::create('/api/notifications/fcm-token', 'POST', [
+            'fcm_token' => str_repeat('safe-token-', 8),
+            'platform' => 'android',
+            'patient_name' => 'No debe aceptarse',
         ]);
-        $this->assertNotNull(UserFcmToken::query()->firstOrFail()->revoked_at);
+        $request->attributes->set('firebase_uid', 'firebase-user-id');
+
+        try {
+            (new FcmTokenController($this->tokens))->register($request);
+            $this->fail('El registro debía rechazar campos fuera del contrato.');
+        } catch (HttpException $exception) {
+            $this->assertSame(422, $exception->getStatusCode());
+        }
+
+        $this->assertSame([], $this->tokens->allDocuments());
     }
 
     public function test_endpoint_sends_data_only_validation_to_authenticated_users_active_tokens(): void
@@ -210,7 +246,10 @@ class FcmInfrastructureTest extends TestCase
 
         $request = Request::create('/api/notifications/test', 'POST');
         $request->attributes->set('firebase_uid', 'test-user');
-        $response = (new FcmTokenController)->test($request, new FcmService($messaging));
+        $response = (new FcmTokenController($this->tokens))->test(
+            $request,
+            new FcmService($this->tokens, $messaging),
+        );
         $responseData = $response->getData(true);
 
         $this->assertSame(200, $response->getStatusCode());
@@ -253,7 +292,10 @@ class FcmInfrastructureTest extends TestCase
         $request->attributes->set('firebase_uid', 'user-without-token');
 
         try {
-            (new FcmTokenController)->test($request, new FcmService($messaging));
+            (new FcmTokenController($this->tokens))->test(
+                $request,
+                new FcmService($this->tokens, $messaging),
+            );
             $this->fail('El endpoint debía responder 404 sin tokens activos.');
         } catch (HttpException $exception) {
             $this->assertSame(404, $exception->getStatusCode());
@@ -269,14 +311,14 @@ class FcmInfrastructureTest extends TestCase
     {
         $messaging = $this->createMock(Messaging::class);
         $messaging->expects($this->never())->method('send');
-        $service = new FcmService($messaging);
+        $service = new FcmService($this->tokens, $messaging);
 
         config(['fcm.enabled' => false]);
         $disabledRequest = Request::create('/api/notifications/test', 'POST');
         $disabledRequest->attributes->set('firebase_uid', 'test-user');
 
         try {
-            (new FcmTokenController)->test($disabledRequest, $service);
+            (new FcmTokenController($this->tokens))->test($disabledRequest, $service);
             $this->fail('El endpoint debía rechazar FCM deshabilitado.');
         } catch (HttpException $exception) {
             $this->assertSame(422, $exception->getStatusCode());
@@ -290,7 +332,7 @@ class FcmInfrastructureTest extends TestCase
         $payloadRequest->attributes->set('firebase_uid', 'test-user');
 
         try {
-            (new FcmTokenController)->test($payloadRequest, $service);
+            (new FcmTokenController($this->tokens))->test($payloadRequest, $service);
             $this->fail('El endpoint debía rechazar cualquier payload.');
         } catch (HttpException $exception) {
             $this->assertSame(422, $exception->getStatusCode());
@@ -311,7 +353,10 @@ class FcmInfrastructureTest extends TestCase
         $request->attributes->set('firebase_uid', 'test-user');
 
         try {
-            (new FcmTokenController)->test($request, new FcmService($messaging));
+            (new FcmTokenController($this->tokens))->test(
+                $request,
+                new FcmService($this->tokens, $messaging),
+            );
             $this->fail('El envío real debía quedar bloqueado fuera de local/staging.');
         } catch (HttpException $exception) {
             $this->assertSame(403, $exception->getStatusCode());
@@ -337,7 +382,7 @@ class FcmInfrastructureTest extends TestCase
                 return [];
             });
 
-        $result = (new FcmService($messaging))->sendToUser(
+        $result = (new FcmService($this->tokens, $messaging))->sendToUser(
             'test-user',
             'appointment_reminder',
             '/agenda-events/event-1',
@@ -361,14 +406,14 @@ class FcmInfrastructureTest extends TestCase
         ], $messageData['data']);
         $this->assertSame('rn_deterministic', $messageData['android']['collapse_key']);
         $this->assertArrayNotHasKey('notification', $messageData['android']);
-        $this->assertTrue($token->fresh()->is_active);
+        $this->assertTrue($this->tokens->documentForToken($token)['is_active']);
     }
 
     public function test_disabled_fcm_and_user_without_active_tokens_do_not_send(): void
     {
         $messaging = $this->createMock(Messaging::class);
         $messaging->expects($this->never())->method('send');
-        $service = new FcmService($messaging);
+        $service = new FcmService($this->tokens, $messaging);
 
         config(['fcm.enabled' => false]);
         $disabled = $service->sendToUser(
@@ -402,13 +447,13 @@ class FcmInfrastructureTest extends TestCase
             ->method('send')
             ->willThrowException(new NotFound('Token no registrado.'));
 
-        $result = (new FcmService($messaging))->sendSafeTestToUser('test-user');
+        $result = (new FcmService($this->tokens, $messaging))->sendSafeTestToUser('test-user');
 
         $this->assertSame(1, $result['invalid']);
         $this->assertSame(0, $result['sent']);
         $this->assertMatchesRegularExpression('/^test_[0-9a-f-]{36}$/', $result['notification_id']);
-        $this->assertFalse($token->fresh()->is_active);
-        $this->assertNotNull($token->fresh()->revoked_at);
+        $this->assertFalse($this->tokens->documentForToken($token)['is_active']);
+        $this->assertNotNull($this->tokens->documentForToken($token)['invalidated_at']);
     }
 
     public function test_only_active_non_revoked_android_tokens_are_selected(): void
@@ -419,14 +464,14 @@ class FcmInfrastructureTest extends TestCase
         ]);
 
         $this->activeToken('test-user', 'active');
-        $this->activeToken('test-user', 'inactive')->forceFill(['is_active' => false])->save();
-        $this->activeToken('test-user', 'revoked')->forceFill(['revoked_at' => now()])->save();
-        $this->activeToken('test-user', 'ios')->forceFill(['platform' => 'ios'])->save();
+        $this->activeToken('test-user', 'inactive', ['is_active' => false]);
+        $this->activeToken('test-user', 'revoked', ['revoked_at' => now()->toIso8601String()]);
+        $this->activeToken('test-user', 'ios', ['platform' => 'ios']);
 
         $messaging = $this->createMock(Messaging::class);
         $messaging->expects($this->once())->method('send')->willReturn([]);
 
-        $result = (new FcmService($messaging))->sendToUser(
+        $result = (new FcmService($this->tokens, $messaging))->sendToUser(
             'test-user',
             'system_notice',
             '/interventions/intervention-1',
@@ -446,7 +491,7 @@ class FcmInfrastructureTest extends TestCase
         $request->attributes->set('firebase_uid', 'firebase-user-id');
 
         try {
-            (new FcmTokenController)->revoke($request);
+            (new FcmTokenController($this->tokens))->revoke($request);
             $this->fail('La revocación debía rechazar un token corto.');
         } catch (ValidationException $exception) {
             $this->assertSame(422, $exception->status);
@@ -469,7 +514,7 @@ class FcmInfrastructureTest extends TestCase
 
         $messaging = $this->createMock(Messaging::class);
         $messaging->expects($this->never())->method('send');
-        $service = new FcmService($messaging);
+        $service = new FcmService($this->tokens, $messaging);
 
         foreach (['exercise_reminder', 'jitai_prompt'] as $type) {
             try {
@@ -501,7 +546,7 @@ class FcmInfrastructureTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('La ruta FCM no coincide con el tipo y la entidad.');
 
-        (new FcmService($messaging))->sendToUser(
+        (new FcmService($this->tokens, $messaging))->sendToUser(
             'test-user',
             'appointment_reminder',
             '/agenda-events/different-event',
@@ -567,16 +612,40 @@ class FcmInfrastructureTest extends TestCase
         });
     }
 
-    private function activeToken(string $userId, string $marker = 'active'): UserFcmToken
+    public function test_runtime_fcm_components_do_not_reference_the_legacy_sql_token_model(): void
     {
-        $token = new UserFcmToken([
-            'fcm_token' => str_repeat($marker.'-token-', 10),
-            'platform' => 'android',
-        ]);
-        $token->user_id = $userId;
-        $token->is_active = true;
-        $token->last_seen_at = now();
-        $token->save();
+        foreach ([
+            app_path('Http/Controllers/Api/FcmTokenController.php'),
+            app_path('Services/FcmService.php'),
+            app_path('Services/FcmRecipientAuthorizer.php'),
+        ] as $path) {
+            $source = file_get_contents($path);
+
+            $this->assertStringNotContainsString('UserFcmToken', $source);
+            $this->assertStringNotContainsString('user_fcm_tokens', $source);
+            $this->assertStringNotContainsString('DB::', $source);
+        }
+
+        $this->assertStringContainsString(
+            'FirestoreFcmTokenRepository',
+            file_get_contents(app_path('Providers/AppServiceProvider.php')),
+        );
+    }
+
+    public function test_example_environment_uses_non_sql_queue_and_cache_for_render_smoke(): void
+    {
+        $environment = file_get_contents(base_path('.env.example'));
+
+        $this->assertStringContainsString('QUEUE_CONNECTION=sync', $environment);
+        $this->assertStringContainsString('CACHE_STORE=file', $environment);
+        $this->assertStringNotContainsString('QUEUE_CONNECTION=database', $environment);
+        $this->assertStringNotContainsString('CACHE_STORE=database', $environment);
+    }
+
+    private function activeToken(string $userId, string $marker = 'active', array $overrides = []): string
+    {
+        $token = str_repeat($marker.'-token-', 10);
+        $this->tokens->seedToken($userId, $token, $overrides);
 
         return $token;
     }

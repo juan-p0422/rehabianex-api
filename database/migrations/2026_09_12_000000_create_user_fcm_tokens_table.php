@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Legado local: FCM persiste tokens en Firestore y no usa esta tabla en runtime.
+     */
     public function up(): void
     {
         Schema::create('user_fcm_tokens', function (Blueprint $table) {

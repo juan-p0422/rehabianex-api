@@ -2,16 +2,31 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Contracts\FcmTokenRepository;
 use App\Http\Controllers\Controller;
-use App\Models\UserFcmToken;
 use App\Services\FcmService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 
 class FcmTokenController extends Controller
 {
+    private const REGISTER_FIELDS = [
+        'fcm_token',
+        'platform',
+        'device_id',
+        'app_version',
+        'timezone',
+        'locale',
+    ];
+
+    private const REVOKE_FIELDS = ['fcm_token'];
+
+    public function __construct(private FcmTokenRepository $tokens) {}
+
     public function register(Request $request)
     {
+        $this->rejectUnexpectedFields($request, self::REGISTER_FIELDS);
+
         $data = $request->validate([
             'fcm_token' => ['required', 'string', 'min:50', 'max:4096'],
             'platform' => ['required', 'in:android'],
@@ -29,26 +44,25 @@ class FcmTokenController extends Controller
             'body' => ['prohibited'],
         ]);
 
-        $token = UserFcmToken::firstOrNew(['fcm_token' => $data['fcm_token']]);
-        $token->user_id = $this->authenticatedUid($request);
-        $token->fill(Arr::except($data, ['fcm_token']));
-        $token->fcm_token = $data['fcm_token'];
-        $token->is_active = true;
-        $token->last_seen_at = now();
-        $token->revoked_at = null;
-        $token->save();
+        $token = $this->tokens->registerToken(
+            $this->authenticatedUid($request),
+            $data['fcm_token'],
+            Arr::only($data, ['device_id', 'app_version', 'timezone', 'locale']),
+        );
 
         return response()->json([
             'ok' => true,
             'message' => 'Token FCM registrado correctamente.',
-            'data' => $token->fresh(),
+            'data' => $token,
         ]);
     }
 
     public function revoke(Request $request)
     {
+        $this->rejectUnexpectedFields($request, self::REVOKE_FIELDS);
+
         $data = $request->validate([
-            'fcm_token' => ['required', 'string', 'min:50', 'max:4096'],
+            'fcm_token' => ['nullable', 'string', 'min:50', 'max:4096'],
             'topic' => ['prohibited'],
             'user_id' => ['prohibited'],
             'role' => ['prohibited'],
@@ -56,15 +70,10 @@ class FcmTokenController extends Controller
             'payload' => ['prohibited'],
         ]);
 
-        UserFcmToken::query()
-            ->where('user_id', $this->authenticatedUid($request))
-            ->where('fcm_token', $data['fcm_token'])
-            ->where('is_active', true)
-            ->update([
-                'is_active' => false,
-                'revoked_at' => now(),
-                'updated_at' => now(),
-            ]);
+        $this->tokens->revokeToken(
+            $this->authenticatedUid($request),
+            $data['fcm_token'] ?? null,
+        );
 
         return response()->noContent();
     }
@@ -119,5 +128,12 @@ class FcmTokenController extends Controller
         }
 
         return $uid;
+    }
+
+    private function rejectUnexpectedFields(Request $request, array $allowed): void
+    {
+        if (array_diff(array_keys($request->all()), $allowed) !== []) {
+            abort(422, 'La solicitud contiene campos no permitidos.');
+        }
     }
 }

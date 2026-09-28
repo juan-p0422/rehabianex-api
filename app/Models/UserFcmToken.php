@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class UserFcmToken extends Model
 {
+    /**
+     * @deprecated La persistencia FCM runtime usa Firestore para compatibilidad con Render.
+     *             Este modelo se conserva temporalmente como legado local.
+     */
     protected $fillable = [
         'fcm_token',
         'platform',

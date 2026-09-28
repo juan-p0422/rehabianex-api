@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\UserFcmToken;
+use App\Contracts\FcmTokenRepository;
 use App\Support\FcmNotificationTypes;
 use App\Support\FcmPayloadSanitizer;
 use App\Support\FcmSafeTexts;
@@ -15,7 +15,10 @@ use Throwable;
 
 class FcmService
 {
-    public function __construct(private Messaging $messaging) {}
+    public function __construct(
+        private FcmTokenRepository $tokens,
+        private Messaging $messaging,
+    ) {}
 
     public function sendToUser(
         string $userId,
@@ -41,14 +44,9 @@ class FcmService
             'priority' => $priority,
         ]);
 
-        $tokens = UserFcmToken::query()
-            ->where('user_id', $userId)
-            ->where('is_active', true)
-            ->whereNull('revoked_at')
-            ->where('platform', 'android')
-            ->get();
+        $tokens = $this->tokens->getActiveTokensForUser($userId);
 
-        if ($tokens->isEmpty()) {
+        if ($tokens === []) {
             return $this->result('no_active_tokens');
         }
 
@@ -65,10 +63,7 @@ class FcmService
                 );
                 $sent++;
             } catch (NotFound) {
-                $token->forceFill([
-                    'is_active' => false,
-                    'revoked_at' => now(),
-                ])->save();
+                $this->tokens->markInvalid($token);
                 $invalid++;
             } catch (Throwable) {
                 // Provider errors can contain token material, so they are not logged.
@@ -113,7 +108,7 @@ class FcmService
     }
 
     private function sendMessage(
-        UserFcmToken $token,
+        string $token,
         array $payload,
         bool $validateOnly,
     ): array {
@@ -122,7 +117,7 @@ class FcmService
             : (string) config('fcm.android.priority', 'high');
 
         $message = CloudMessage::new()
-            ->toToken($token->fcm_token)
+            ->toToken($token)
             ->withData($payload)
             ->withAndroidConfig([
                 'priority' => $androidPriority,
