@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiErrorResponse;
+use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
 use App\Services\FirestoreAccessService;
 use Carbon\Carbon;
@@ -14,11 +15,15 @@ class PatientController extends Controller
 {
     private $db;
 
+    private FcmNotificationDispatcher $fcmNotifications;
+
     public function __construct(
         FirebaseService $firebase,
-        private FirestoreAccessService $access
+        private FirestoreAccessService $access,
+        ?FcmNotificationDispatcher $fcmNotifications = null,
     ) {
         $this->db = $firebase->db();
+        $this->fcmNotifications = $fcmNotifications ?? app(FcmNotificationDispatcher::class);
     }
 
     public function supervisedPatients(Request $request, string $supervisorUid)
@@ -230,6 +235,7 @@ class PatientController extends Controller
         }
 
         $document->set($note);
+        $this->fcmNotifications->created('patient-notes', $note);
 
         return response()->json($this->noteCreationResponse($note, false), 201);
     }

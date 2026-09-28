@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\Api\AuthController;
+use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -142,6 +143,67 @@ class LegalAcceptanceContractTest extends TestCase
         ], $response->getData(true)['profile']['legal_acceptance']);
     }
 
+    public function test_pending_supervisor_registration_dispatches_the_real_admin_validation_event(): void
+    {
+        config(['services.firebase.web_api_key' => 'safe-test-key']);
+
+        $user = $this->firebaseUser('supervisor');
+        $auth = Mockery::mock();
+        $auth->shouldReceive('createUser')->once()->andReturn($user);
+        $auth->shouldReceive('setCustomUserClaims')->once()->with($user->uid, ['role' => 'supervisor']);
+        $auth->shouldReceive('getUser')->once()->with($user->uid)->andReturn($user);
+
+        $snapshot = Mockery::mock();
+        $snapshot->shouldReceive('exists')->once()->andReturnFalse();
+
+        $document = Mockery::mock();
+        $document->shouldReceive('snapshot')->once()->andReturn($snapshot);
+        $document->shouldReceive('set')->once()->with(Mockery::on(
+            fn (array $profile): bool => $profile['uid'] === $user->uid
+                && $profile['role'] === 'supervisor'
+                && $profile['status'] === 'pending_review'
+                && $profile['authorized'] === false
+                && $profile['verified'] === false
+        ));
+
+        $collection = Mockery::mock();
+        $collection->shouldReceive('document')->twice()->with($user->uid)->andReturn($document);
+
+        $db = Mockery::mock();
+        $db->shouldReceive('collection')->twice()->with('supervisors')->andReturn($collection);
+
+        Http::fake([
+            'https://identitytoolkit.googleapis.com/*' => Http::response([
+                'idToken' => 'test-id-token',
+                'refreshToken' => 'test-refresh-token',
+                'expiresIn' => '3600',
+                'localId' => $user->uid,
+            ], 200),
+        ]);
+
+        $dispatcher = Mockery::mock(FcmNotificationDispatcher::class);
+        $dispatcher->shouldReceive('sendSupervisorValidationRequired')
+            ->once()
+            ->with($user->uid, Mockery::on(fn (mixed $createdAt): bool => is_string($createdAt)));
+
+        $this->app->instance(FirebaseService::class, $this->firebaseStub($auth, $db));
+        $this->app->instance(FcmNotificationDispatcher::class, $dispatcher);
+
+        $this->postJson('/api/auth/register', [
+            'email' => $user->email,
+            'password' => 'SecurePassword123!',
+            'full_name' => $user->displayName,
+            'role' => 'supervisor',
+            'supervisor_type' => 'support_sponsor',
+            'privacy_notice_accepted' => true,
+            'privacy_notice_version' => '2026-08-01',
+        ])->assertCreated()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('profile.status', 'pending_review')
+            ->assertJsonPath('profile.authorized', false)
+            ->assertJsonPath('profile.verified', false);
+    }
+
     private function firebaseStub(mixed $auth, mixed $db): FirebaseService
     {
         $firebase = Mockery::mock(FirebaseService::class);
@@ -151,17 +213,17 @@ class LegalAcceptanceContractTest extends TestCase
         return $firebase;
     }
 
-    private function firebaseUser(): object
+    private function firebaseUser(string $role = 'patient'): object
     {
         return (object) [
-            'uid' => 'patient-legal-test',
-            'email' => 'patient@example.test',
+            'uid' => "{$role}-legal-test",
+            'email' => "{$role}@example.test",
             'emailVerified' => false,
-            'displayName' => 'Paciente Legal',
+            'displayName' => $role === 'supervisor' ? 'Supervisor Legal' : 'Paciente Legal',
             'phoneNumber' => null,
             'photoUrl' => null,
             'disabled' => false,
-            'customClaims' => ['role' => 'patient'],
+            'customClaims' => ['role' => $role],
             'providerData' => [],
         ];
     }

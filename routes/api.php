@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AdminSupervisorController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardSummaryController;
+use App\Http\Controllers\Api\FcmTokenController;
 use App\Http\Controllers\Api\FirestoreCrudController;
 use App\Http\Controllers\Api\SupervisionController;
 use App\Http\Controllers\PatientController;
@@ -25,6 +26,13 @@ Route::prefix('auth')->group(function () {
 Route::middleware('firebase.auth')->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
+
+    Route::post('/notifications/fcm-token', [FcmTokenController::class, 'register'])
+        ->middleware('throttle:10,1');
+    Route::delete('/notifications/fcm-token', [FcmTokenController::class, 'revoke'])
+        ->middleware('throttle:10,1');
+    Route::post('/notifications/test', [FcmTokenController::class, 'test'])
+        ->middleware('throttle:3,1');
 
     Route::get('/supervisors/{id}/patients', [PatientController::class, 'supervisedPatients']);
     Route::get('/supervisors/{uid}/dashboard-summary', [DashboardSummaryController::class, 'supervisor'])

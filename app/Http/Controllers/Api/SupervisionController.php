@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiErrorResponse;
+use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
 use App\Services\FirestoreAccessService;
 use Carbon\Carbon;
@@ -17,11 +18,15 @@ class SupervisionController extends Controller
 {
     private $db;
 
+    private FcmNotificationDispatcher $fcmNotifications;
+
     public function __construct(
         FirebaseService $firebase,
-        private FirestoreAccessService $access
+        private FirestoreAccessService $access,
+        ?FcmNotificationDispatcher $fcmNotifications = null,
     ) {
         $this->db = $firebase->db();
+        $this->fcmNotifications = $fcmNotifications ?? app(FcmNotificationDispatcher::class);
     }
 
     public function resolveSupervisor(Request $request)
@@ -176,6 +181,8 @@ class SupervisionController extends Controller
                     }
                 }
             });
+
+            $this->fcmNotifications->supervisionResponded($supervisionRequest);
 
             return response()->json([
                 'ok' => true,

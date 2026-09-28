@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiErrorResponse;
 use App\Models\Firestore\FirestoreResource;
+use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
 use App\Services\FirestoreAccessService;
 use App\Support\PatientDisplayName;
@@ -21,11 +22,15 @@ class FirestoreCrudController extends Controller
 {
     private $db;
 
+    private FcmNotificationDispatcher $fcmNotifications;
+
     public function __construct(
         FirebaseService $firebase,
-        private FirestoreAccessService $access
+        private FirestoreAccessService $access,
+        ?FcmNotificationDispatcher $fcmNotifications = null,
     ) {
         $this->db = $firebase->db();
+        $this->fcmNotifications = $fcmNotifications ?? app(FcmNotificationDispatcher::class);
     }
 
     public function index(Request $request, string $resource)
@@ -146,6 +151,7 @@ class FirestoreCrudController extends Controller
             $data['updated_at'] = $now;
 
             $this->db->collection($model::collection())->document($documentId)->set($data);
+            $this->fcmNotifications->created($resource, $data);
             $responseData = $resource === 'consents'
                 ? $this->access->normalizeConsentForOutput($data)
                 : $data;
@@ -234,6 +240,7 @@ class FirestoreCrudController extends Controller
             $updated['updated_at'] = Carbon::now()->toIso8601String();
 
             $document->set($updated);
+            $this->fcmNotifications->updated($resource, $updated);
 
             return response()->json($this->updateResponse(
                 $resource,
@@ -284,7 +291,9 @@ class FirestoreCrudController extends Controller
                 ]);
             }
 
-            $document->set(array_replace($current, $changes));
+            $updated = array_replace($current, $changes);
+            $document->set($updated);
+            $this->fcmNotifications->updated($resource, $updated);
 
             $response = [
                 'ok' => true,

@@ -11,10 +11,11 @@ persistan en Room deben cifrarse en el dispositivo. Datos obtenidos como
 supervisor, contexto/respuestas IA y detalles sujetos a consentimiento son
 network-only/memory-only y no deben escribirse en caché persistente.
 
-El estado real de notificaciones se documenta en
-`docs/NOTIFICATIONS_BACKEND_STATUS.md`: el prototipo guarda preferencias remotas
-del paciente y Android programa recordatorios locales; FCM no está implementado
-y queda como extensión futura.
+El estado vigente de notificaciones se documenta en
+`docs/NOTIFICATIONS_BACKEND_STATUS.md` y `docs/ANDROID_FCM_CONTRACT.md`. FCM es
+la fuente principal cuando existe conectividad; Android conserva únicamente
+fallback local básico y no sensible. Render y producción quedan fuera del
+cierre local actual.
 
 Este documento define el contrato mínimo obligatorio que el backend debe mantener
 para el cliente Android. Las rutas se expresan relativas a la URL base:
@@ -1822,11 +1823,12 @@ Android producción: **sí; el endpoint existe**.
 
 ## 26. Obtener configuración de notificaciones
 
-> Estado de entrega: FCM y push remoto no están implementados. El backend no
-> registra tokens de dispositivo y estos endpoints no envían notificaciones.
-> Android consume las preferencias, administra el permiso del sistema
-> (`POST_NOTIFICATIONS` cuando aplica) y programa notificaciones locales. El
-> permiso no se consulta ni modifica mediante la API.
+> Estado de entrega: FCM y el registro autenticado de tokens Android están
+> implementados. Estos endpoints administran preferencias; una operación sobre
+> `notification-settings` no emite por sí sola una notificación. Android
+> administra `POST_NOTIFICATIONS`, procesa mensajes `data-only` y conserva solo
+> el fallback local básico no sensible. El permiso del sistema no se consulta ni
+> modifica mediante la API.
 
 **Método y ruta:** `GET /notification-settings`
 
@@ -2053,10 +2055,11 @@ localmente hasta que se defina un esquema remoto separado. No debe intentar
 crear una configuración de paciente usando el UID del supervisor.
 
 `notification-settings` almacena exclusivamente preferencias y horarios. Una
-operación exitosa no crea un job, no llama a Firebase Cloud Messaging y no
-garantiza entrega remota. No existe endpoint de registro de token FCM en este
-contrato. Cualquier integración futura requerirá contrato, almacenamiento de
-tokens, retención y política de privacidad independientes.
+operación exitosa sobre ese recurso no crea por sí sola un job FCM ni garantiza
+entrega remota. El ciclo de token usa `POST /notifications/fcm-token` y
+`DELETE /notifications/fcm-token`, siempre bajo autenticación Firebase. El
+contrato completo, tipos, rutas, privacidad y deduplicación están definidos en
+`docs/ANDROID_FCM_CONTRACT.md`.
 
 ## 29. Chatbot IA para supervisor
 

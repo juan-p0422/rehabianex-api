@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiErrorResponse;
+use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
 use App\Support\PatientDisplayName;
 use Carbon\Carbon;
@@ -11,8 +12,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Kreait\Firebase\Exception\Auth\EmailExists;
 use Throwable;
 
@@ -22,10 +23,15 @@ class AuthController extends Controller
 
     private $db;
 
-    public function __construct(FirebaseService $firebase)
-    {
+    private FcmNotificationDispatcher $fcmNotifications;
+
+    public function __construct(
+        FirebaseService $firebase,
+        ?FcmNotificationDispatcher $fcmNotifications = null,
+    ) {
         $this->auth = $firebase->auth();
         $this->db = $firebase->db();
+        $this->fcmNotifications = $fcmNotifications ?? app(FcmNotificationDispatcher::class);
     }
 
     public function register(Request $request)
@@ -116,6 +122,19 @@ class AuthController extends Controller
                 $profile,
                 $tokens
             );
+
+            if ($data['role'] === 'supervisor') {
+                try {
+                    $this->fcmNotifications->sendSupervisorValidationRequired(
+                        $user->uid,
+                        (string) ($profile['created_at'] ?? $acceptedAt),
+                    );
+                } catch (Throwable $notificationError) {
+                    Log::warning('FCM supervisor validation dispatch skipped.', [
+                        'exception' => get_class($notificationError),
+                    ]);
+                }
+            }
 
             return response()->json([
                 'ok' => true,
@@ -259,6 +278,11 @@ class AuthController extends Controller
             ]);
 
             $this->auth->revokeRefreshTokens($uid);
+
+            // Contrato FCM vigente: el cliente invoca
+            // DELETE /api/notifications/fcm-token antes de cerrar la sesión.
+            // Este endpoint revoca la sesión Firebase; la revocación del token
+            // de dispositivo permanece en su endpoint autenticado y acotado.
 
             return response()->json([
                 'ok' => true,

@@ -29,6 +29,7 @@ storage/app/firebase/firebase_credentials_from_env.json
 /node_modules
 /.env
 /.env.*
+!/.env.example
+/storage/app/firebase/
 /storage/app/firebase/*.json
 /storage/logs/*.log
-
