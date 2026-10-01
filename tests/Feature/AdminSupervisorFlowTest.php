@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\Api\AdminSupervisorController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Middleware\RequireAdmin;
+use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
 use App\Services\FirestoreAccessService;
 use Illuminate\Http\Request;
@@ -46,7 +47,11 @@ class AdminSupervisorFlowTest extends TestCase
         ]);
         $firebase = Mockery::mock(FirebaseService::class);
         $firebase->shouldReceive('db')->andReturn($store);
-        $controller = new AdminSupervisorController($firebase);
+        $notifications = Mockery::mock(FcmNotificationDispatcher::class);
+        $notifications->shouldReceive('sendSupervisorValidationApproved')
+            ->once()
+            ->with('supervisor-1', Mockery::on(fn (string $value): bool => $value !== ''));
+        $controller = new AdminSupervisorController($firebase, $notifications);
         $access = new FirestoreAccessService($firebase);
         $adminRequest = $this->request('admin', 'admin-1', ['status' => 'active']);
 

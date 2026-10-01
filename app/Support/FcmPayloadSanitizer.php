@@ -20,6 +20,8 @@ final class FcmPayloadSanitizer
     ];
 
     public const FORBIDDEN_FIELDS = [
+        'name',
+        'alias',
         'patient_name',
         'patient_alias',
         'display_name',
@@ -30,6 +32,7 @@ final class FcmPayloadSanitizer
         'craving_level',
         'anxiety_level',
         'diagnosis',
+        'substance',
         'free_text_message',
         'location',
         'patient_uid',

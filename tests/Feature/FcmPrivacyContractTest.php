@@ -89,6 +89,27 @@ class FcmPrivacyContractTest extends TestCase
         );
     }
 
+    public function test_more_than_three_distinct_real_clinical_events_are_not_throttled(): void
+    {
+        Queue::fake();
+        $this->enableClinicalAlerts();
+        $authorizer = $this->createMock(FcmRecipientAuthorizer::class);
+        $authorizer->method('authorizedSupervisorUidForPatient')->willReturn('supervisor-1');
+        $dispatcher = new FcmNotificationDispatcher($authorizer);
+
+        foreach (range(1, 4) as $index) {
+            $note = $this->sensitiveNote();
+            $note['note_id'] = 'distinct-note-'.$index;
+            $dispatcher->sendRelapseAlert($note);
+        }
+
+        Queue::assertPushed(SendFcmNotification::class, 4);
+        $dedupeIds = Queue::pushed(SendFcmNotification::class)
+            ->map(fn (SendFcmNotification $job): ?string => $job->dedupeId)
+            ->unique();
+        $this->assertCount(4, $dedupeIds);
+    }
+
     public function test_disabled_clinical_flags_prevent_dispatch(): void
     {
         Queue::fake();
@@ -147,6 +168,50 @@ class FcmPrivacyContractTest extends TestCase
             && $job->route === '/unlink-requests/unlink-1'
             && $job->priority === 'high'
             && str_starts_with($job->notificationId, 'rn_unlink_')
+        );
+    }
+
+    public function test_consent_suspension_targets_authorized_supervisor_with_opaque_reference(): void
+    {
+        Queue::fake();
+        config(['fcm.enabled' => true]);
+        $authorizer = $this->createMock(FcmRecipientAuthorizer::class);
+        $authorizer->method('canNotifySupervisor')->with('supervisor-1')->willReturn(true);
+
+        (new FcmNotificationDispatcher($authorizer))->sendConsentSuspended([
+            'consent_id' => 'consent-sensitive-id',
+            'supervisor_uid' => 'supervisor-1',
+            'status' => 'paused',
+            'paused_at' => '2026-09-30T12:00:00-06:00',
+        ]);
+
+        Queue::assertPushed(SendFcmNotification::class, function (SendFcmNotification $job): bool {
+            return $job->type === 'consent_suspended'
+                && $job->userId === 'supervisor-1'
+                && $job->priority === 'high'
+                && $job->entityId !== 'consent-sensitive-id'
+                && $job->route === '/consents/'.$job->entityId
+                && preg_match('/^[a-f0-9]{64}$/', (string) $job->dedupeId) === 1;
+        });
+    }
+
+    public function test_supervisor_approval_targets_only_the_approved_supervisor(): void
+    {
+        Queue::fake();
+        config(['fcm.enabled' => true]);
+        $authorizer = $this->createMock(FcmRecipientAuthorizer::class);
+        $authorizer->method('canNotifySupervisor')->with('supervisor-1')->willReturn(true);
+
+        (new FcmNotificationDispatcher($authorizer))->sendSupervisorValidationApproved(
+            'supervisor-1',
+            '2026-09-30T12:00:00-06:00',
+        );
+
+        Queue::assertPushed(SendFcmNotification::class, fn (SendFcmNotification $job): bool => $job->type === 'supervisor_validation_approved'
+            && $job->userId === 'supervisor-1'
+            && $job->route === '/home'
+            && $job->entityId !== 'supervisor-1'
+            && preg_match('/^[a-f0-9]{64}$/', (string) $job->dedupeId) === 1
         );
     }
 
@@ -226,7 +291,7 @@ class FcmPrivacyContractTest extends TestCase
         $payloads = [
             array_replace($this->safePayload(), [
                 'type' => 'unlink_request',
-                'body' => 'Tienes una solicitud pendiente.',
+                'body' => 'Tienes una solicitud de cambio de consentimiento.',
                 'route' => '/supervision-requests/unlink-1',
                 'entity_id' => 'unlink-1',
                 'priority' => 'high',
@@ -250,7 +315,7 @@ class FcmPrivacyContractTest extends TestCase
         }
     }
 
-    public function test_transport_only_types_are_documented_and_have_no_false_generic_trigger(): void
+    public function test_reserved_and_scheduled_types_are_documented_and_have_no_false_generic_trigger(): void
     {
         Queue::fake();
         config(['fcm.enabled' => true]);
@@ -276,8 +341,12 @@ class FcmPrivacyContractTest extends TestCase
             'system_notice',
             'test_notification',
         ] as $type) {
-            $this->assertStringContainsString("`{$type}` | `transport_only`", $documentation);
+            $this->assertStringContainsString("| `{$type}` |", $documentation);
         }
+
+        $this->assertStringContainsString('| `progress_checkin` | `/checkins/new` | Funcional: comando de vencidos |', $documentation);
+        $this->assertStringContainsString('| `sober_day_update` | `/home` | Reservado |', $documentation);
+        $this->assertStringContainsString('| `achievement_unlocked` | `/achievements/{id}` | Pendiente de dominio real |', $documentation);
     }
 
     public function test_existing_domain_events_dispatch_unlink_relapse_and_risk_notifications(): void
@@ -443,7 +512,7 @@ class FcmPrivacyContractTest extends TestCase
         );
 
         $this->assertSame(
-            'Hay una validación pendiente.',
+            'Hay una solicitud de supervisión que requiere revisión.',
             $captured['data']['body'],
         );
         $this->assertArrayNotHasKey('notification', $captured);

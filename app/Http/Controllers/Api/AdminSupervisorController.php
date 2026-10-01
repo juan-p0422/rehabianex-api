@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiErrorResponse;
+use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
@@ -50,9 +52,14 @@ class AdminSupervisorController extends Controller
 
     private $db;
 
-    public function __construct(FirebaseService $firebase)
-    {
+    private FcmNotificationDispatcher $fcmNotifications;
+
+    public function __construct(
+        FirebaseService $firebase,
+        ?FcmNotificationDispatcher $fcmNotifications = null,
+    ) {
         $this->db = $firebase->db();
+        $this->fcmNotifications = $fcmNotifications ?? app(FcmNotificationDispatcher::class);
     }
 
     public function index(Request $request)
@@ -152,7 +159,22 @@ class AdminSupervisorController extends Controller
             $changes['authorization_notes'] = $validator->validated()['notes'];
         }
 
-        return $this->saveTransition($uid, $supervisor, $changes, 'Supervisor autorizado correctamente.');
+        $response = $this->saveTransition(
+            $uid,
+            $supervisor,
+            $changes,
+            'Supervisor autorizado correctamente.',
+        );
+
+        try {
+            $this->fcmNotifications->sendSupervisorValidationApproved($uid, $now);
+        } catch (\Throwable $notificationError) {
+            Log::warning('FCM supervisor approval dispatch skipped.', [
+                'exception' => get_class($notificationError),
+            ]);
+        }
+
+        return $response;
     }
 
     public function reject(Request $request, string $uid)

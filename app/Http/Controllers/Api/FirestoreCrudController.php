@@ -242,6 +242,18 @@ class FirestoreCrudController extends Controller
             $document->set($updated);
             $this->fcmNotifications->updated($resource, $updated);
 
+            if ($resource === 'consents'
+                && ($current['status'] ?? null) === 'active'
+                && in_array(($updated['status'] ?? null), ['paused', 'suspended'], true)) {
+                try {
+                    $this->fcmNotifications->sendConsentSuspended($updated);
+                } catch (Throwable $notificationError) {
+                    Log::warning('FCM consent suspension dispatch skipped.', [
+                        'exception' => get_class($notificationError),
+                    ]);
+                }
+            }
+
             return response()->json($this->updateResponse(
                 $resource,
                 $model::collection(),

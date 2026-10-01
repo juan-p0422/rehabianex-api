@@ -6,8 +6,9 @@ Esta guía prepara una fase futura de despliegue del backend Laravel en Render y
 su validación con un cliente Android técnico. No autoriza push, despliegue ni
 habilitación de producción durante el cierre local.
 
-El primer smoke real debe realizarse en un servicio de **staging** aislado. No
-se debe cambiar temporalmente un servicio productivo para simular staging.
+No se crea otro servicio ni otro ambiente. Cualquier ventana de prueba real
+debe seguir el procedimiento operativo ya aprobado y restaurar inmediatamente
+la configuracion segura al terminar o ante un fallo.
 
 ## Variables necesarias
 
@@ -84,12 +85,10 @@ smoke debe confirmar un único mensaje `data-only`, texto genérico, destino
 seguro y ausencia de token completo en logs.
 
 Con `QUEUE_CONNECTION=sync`, `SendFcmNotification` y los disparadores directos
-se ejecutan inmediatamente en el mismo proceso HTTP. Esta configuración es
-adecuada para el smoke controlado. El `delay()` de `SendAppointmentReminder` no
-garantiza una ejecución futura real con el driver síncrono; validar recordatorios
-programados requiere posteriormente scheduler/worker, una cola asíncrona
-durable o el mecanismo local Android permitido. Esa limitación no bloquea el
-smoke de transporte FCM inmediato.
+se ejecutan inmediatamente en el proceso que origina el evento. Los
+recordatorios futuros no dependen de `delay()`: el scheduler ejecuta cada
+minuto `php artisan notifications:dispatch-due`. El comando consulta Firestore
+y el ledger `notification_dispatches` bloquea replays exactos.
 
 Los flags clínicos, administrativos o de vulnerabilidad se habilitan de uno en
 uno únicamente durante casos E2E autorizados. Deben volver a `false` al terminar
@@ -102,6 +101,7 @@ Antes del push, en local:
 ```bash
 php artisan config:clear
 php artisan route:list --path=api/notifications -v
+php artisan schedule:list
 php artisan test --filter=Fcm
 php artisan test
 composer validate
@@ -120,13 +120,9 @@ php artisan route:list --path=api/notifications -v
 No se deben ejecutar migraciones SQL para FCM, comandos destructivos, seeders
 de demostración ni tareas que copien usuarios reales.
 
-Si en una fase futura se habilitan workers, múltiples instancias o programación
-durable, evaluar Redis u otro backend compartido para cola y locks. Configurar
-entonces un Background Worker con el mismo release y ejecutar:
-
-```bash
-php artisan queue:work --queue=default --tries=1 --timeout=60
-```
+Render debe invocar `php artisan notifications:dispatch-due` cada minuto para
+recordatorios programados. El ledger Firestore proporciona dedupe persistente y
+no depende de un lock por IP ni de tablas SQL.
 
 La validación funcional incluye registro y revocación del token, smoke en
 foreground y background, rutas seguras, privacidad visible y consulta de logs

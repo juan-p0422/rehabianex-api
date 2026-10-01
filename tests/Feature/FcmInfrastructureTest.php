@@ -6,7 +6,6 @@ use App\Contracts\FcmTokenRepository;
 use App\Http\Controllers\Api\FcmTokenController;
 use App\Http\Controllers\Api\FirestoreCrudController;
 use App\Http\Controllers\Api\SupervisionController;
-use App\Jobs\SendAppointmentReminder;
 use App\Jobs\SendFcmNotification;
 use App\Models\User;
 use App\Models\UserFcmToken;
@@ -15,7 +14,8 @@ use App\Services\FcmRecipientAuthorizer;
 use App\Services\FcmService;
 use App\Services\FirebaseService;
 use App\Services\FirestoreAccessService;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use App\Support\FcmNotificationTypes;
+use App\Support\FcmSafeTexts;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -88,6 +88,9 @@ class FcmInfrastructureTest extends TestCase
 
             $this->assertContains('firebase.auth', $route->gatherMiddleware());
         }
+
+        $testRoute = Route::getRoutes()->match(request()->create('api/notifications/test', 'POST'));
+        $this->assertContains('throttle:3,1', $testRoute->gatherMiddleware());
     }
 
     public function test_fcm_token_is_hidden_and_casts_operational_fields(): void
@@ -397,7 +400,7 @@ class FcmInfrastructureTest extends TestCase
         $this->assertSame([
             'type' => 'appointment_reminder',
             'title' => 'Rehabianex',
-            'body' => 'Tienes un recordatorio pendiente.',
+            'body' => 'Tienes un evento de agenda próximo.',
             'route' => '/agenda-events/event-1',
             'entity_id' => 'event-1',
             'notification_id' => 'rn_deterministic',
@@ -536,6 +539,38 @@ class FcmInfrastructureTest extends TestCase
         }
     }
 
+    public function test_official_contract_contains_eighteen_types_with_exact_texts_and_routes(): void
+    {
+        $contracts = [
+            'appointment_reminder' => ['Tienes un evento de agenda próximo.', '/agenda-events/opaque'],
+            'progress_checkin' => ['Es momento de registrar tu seguimiento.', '/checkins/new'],
+            'sober_day_update' => ['Has alcanzado un nuevo avance en tu proceso.', '/home'],
+            'achievement_unlocked' => ['Has alcanzado un nuevo logro.', '/achievements/opaque'],
+            'supervision_request' => ['Tienes una nueva solicitud de acompañamiento.', '/supervision-requests/opaque'],
+            'supervision_response' => ['Tu solicitud de acompañamiento fue actualizada.', '/supervision-requests/opaque'],
+            'unlink_request' => ['Tienes una solicitud de cambio de consentimiento.', '/unlink-requests/opaque'],
+            'consent_suspended' => ['Se actualizó el estado de un consentimiento.', '/consents/opaque'],
+            'intervention_update' => ['Tu plan de apoyo tiene una actualización.', '/interventions/opaque'],
+            'relapse_alert' => ['Hay una actualización prioritaria de seguimiento.', '/patients/priority'],
+            'risk_alert' => ['Hay una actualización importante de seguimiento.', '/patients/priority'],
+            'vulnerable_user_priority' => ['Hay una actualización importante de seguimiento.', '/patients/priority'],
+            'user_validation_required' => ['Hay una cuenta pendiente de validación.', '/admin/users/pending/opaque'],
+            'supervisor_validation_required' => ['Hay una cuenta de supervisor pendiente de validación.', '/admin/supervisors/pending/opaque'],
+            'supervisor_validation_approved' => ['Tu cuenta de supervisor fue aprobada.', '/home'],
+            'supervision_request_conflict' => ['Hay una solicitud de supervisión que requiere revisión.', '/admin/supervision-conflicts/opaque'],
+            'system_notice' => ['Tienes una actualización en Rehabianex.', '/interventions/opaque'],
+            'test_notification' => ['Tienes una actualización en Rehabianex.', '/home'],
+        ];
+
+        $this->assertCount(18, FcmNotificationTypes::ALL);
+        $this->assertSame(array_keys($contracts), FcmNotificationTypes::ALL);
+
+        foreach ($contracts as $type => [$body, $route]) {
+            $this->assertSame($body, FcmSafeTexts::bodyFor($type));
+            $this->assertTrue(FcmNotificationTypes::routeIsAllowed($type, $route, 'opaque'));
+        }
+    }
+
     public function test_route_must_match_type_and_entity(): void
     {
         config(['fcm.enabled' => true]);
@@ -590,12 +625,9 @@ class FcmInfrastructureTest extends TestCase
             'patient_uid' => 'patient-1',
         ]);
 
-        $appointmentJobs = Queue::pushed(SendAppointmentReminder::class);
-        $this->assertNotEmpty($appointmentJobs);
-        $this->assertCount(1, $appointmentJobs
-            ->map(fn (SendAppointmentReminder $job): string => $job->notificationId)
-            ->unique());
-        $this->assertInstanceOf(ShouldBeUnique::class, $appointmentJobs->first());
+        Queue::assertNotPushed(SendFcmNotification::class, function (SendFcmNotification $job): bool {
+            return $job->type === 'appointment_reminder';
+        });
 
         Queue::assertPushed(SendFcmNotification::class, function (SendFcmNotification $job): bool {
             return $job->userId === 'supervisor-1'

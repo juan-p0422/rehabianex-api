@@ -2,10 +2,8 @@
 
 namespace App\Services;
 
-use App\Jobs\SendAppointmentReminder;
 use App\Jobs\SendFcmNotification;
 use App\Support\FcmNotificationTypes;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
@@ -22,7 +20,6 @@ class FcmNotificationDispatcher
 
         $this->safely($resource, function () use ($resource, $data): void {
             match ($resource) {
-                'agenda-events' => $this->sendAppointmentReminder($data),
                 'supervision-requests' => ($data['type'] ?? 'link') === 'unlink'
                     ? $this->sendUnlinkRequest($data)
                     : $this->sendSupervisionRequest($data),
@@ -41,7 +38,6 @@ class FcmNotificationDispatcher
 
         $this->safely($resource, function () use ($resource, $data): void {
             match ($resource) {
-                'agenda-events' => $this->sendAppointmentReminder($data),
                 'interventions' => $this->sendInterventionUpdate($data, 'updated'),
                 default => null,
             };
@@ -68,12 +64,21 @@ class FcmNotificationDispatcher
             return;
         }
 
-        SendAppointmentReminder::dispatch(
-            $eventId,
+        if (! $this->recipients()->canNotifyPatient($patientUid)) {
+            return;
+        }
+
+        $this->queue(
             $patientUid,
-            $startsAt,
-            $this->notificationId('appointment', $eventId, $patientUid, $startsAt),
-        )->delay(Carbon::parse($startsAt));
+            FcmNotificationTypes::APPOINTMENT_REMINDER,
+            '/agenda-events/'.$eventId,
+            $eventId,
+            'appointment-reminder',
+            now()->toIso8601String(),
+            'normal',
+            null,
+            'appointment_reminder:'.$eventId.':'.$startsAt,
+        );
     }
 
     public function sendProgressCheckin(string $patientUid, string $checkinId, string $createdAt): void
@@ -89,6 +94,9 @@ class FcmNotificationDispatcher
             $checkinId,
             'progress-checkin',
             $createdAt,
+            'normal',
+            null,
+            'progress_checkin:'.$patientUid.':'.$createdAt,
         );
     }
 
@@ -105,6 +113,9 @@ class FcmNotificationDispatcher
             $confirmationId,
             'sober-day-confirmed',
             $createdAt,
+            'normal',
+            null,
+            'sober_day_update:'.$confirmationId.':'.$patientUid,
         );
     }
 
@@ -125,6 +136,9 @@ class FcmNotificationDispatcher
             $achievementId,
             'achievement-unlocked',
             $createdAt,
+            'normal',
+            null,
+            'achievement_unlocked:'.$achievementId.':'.$patientUid,
         );
     }
 
@@ -144,6 +158,9 @@ class FcmNotificationDispatcher
             $requestId,
             'supervision-request-created',
             (string) ($request['created_at'] ?? now()->toIso8601String()),
+            'normal',
+            null,
+            'supervision_request:'.$requestId.':'.$supervisorUid,
         );
     }
 
@@ -163,6 +180,9 @@ class FcmNotificationDispatcher
             $requestId,
             'supervision-response-'.($request['status'] ?? 'updated'),
             (string) ($request['responded_at'] ?? now()->toIso8601String()),
+            'normal',
+            null,
+            'supervision_response:'.$requestId.':'.($request['status'] ?? 'updated').':'.$patientUid,
         );
     }
 
@@ -184,6 +204,33 @@ class FcmNotificationDispatcher
             (string) ($request['created_at'] ?? now()->toIso8601String()),
             'high',
             'unlink',
+            'unlink_request:'.$requestId.':'.$supervisorUid,
+        );
+    }
+
+    public function sendConsentSuspended(array $consent): void
+    {
+        $consentId = (string) ($consent['consent_id'] ?? '');
+        $supervisorUid = (string) ($consent['supervisor_uid'] ?? '');
+        $transitionAt = (string) ($consent['paused_at'] ?? $consent['updated_at'] ?? '');
+
+        if ($consentId === '' || $transitionAt === ''
+            || ! in_array(($consent['status'] ?? null), ['paused', 'suspended'], true)
+            || ! $this->recipients()->canNotifySupervisor($supervisorUid)) {
+            return;
+        }
+
+        $entityId = $this->opaqueReference('consent', $consentId);
+        $this->queue(
+            $supervisorUid,
+            FcmNotificationTypes::CONSENT_SUSPENDED,
+            '/consents/'.$entityId,
+            $entityId,
+            'consent-suspended',
+            $transitionAt,
+            'high',
+            'consent',
+            'consent_suspended:'.$consentId.':'.$transitionAt.':'.$supervisorUid,
         );
     }
 
@@ -202,7 +249,10 @@ class FcmNotificationDispatcher
             '/interventions/'.$interventionId,
             $interventionId,
             'intervention-'.$event,
-            (string) ($intervention['updated_at'] ?? $intervention['created_at'] ?? now()->toIso8601String()),
+            $updatedAt = (string) ($intervention['updated_at'] ?? $intervention['created_at'] ?? now()->toIso8601String()),
+            'normal',
+            null,
+            'intervention_update:'.$interventionId.':'.$updatedAt.':'.$patientUid,
         );
     }
 
@@ -334,6 +384,27 @@ class FcmNotificationDispatcher
             (string) ($note['created_at'] ?? now()->toIso8601String()),
             $priority,
             $type === FcmNotificationTypes::RELAPSE_ALERT ? 'relapse' : 'risk',
+            $type.':'.$noteId.':'.$supervisorUid,
+        );
+    }
+
+    public function sendSupervisorValidationApproved(string $supervisorUid, string $authorizedAt): void
+    {
+        if ($authorizedAt === '' || ! $this->recipients()->canNotifySupervisor($supervisorUid)) {
+            return;
+        }
+
+        $entityId = $this->opaqueReference('approval', $supervisorUid.'|'.$authorizedAt);
+        $this->queue(
+            $supervisorUid,
+            FcmNotificationTypes::SUPERVISOR_VALIDATION_APPROVED,
+            '/home',
+            $entityId,
+            'supervisor-validation-approved',
+            $authorizedAt,
+            'normal',
+            'approval',
+            'supervisor_validation_approved:'.$supervisorUid.':'.$authorizedAt,
         );
     }
 
@@ -361,6 +432,8 @@ class FcmNotificationDispatcher
                 $type.'-'.$sourceId,
                 $createdAt,
                 'normal',
+                null,
+                $type.':'.$sourceId.':'.$adminUid,
             );
         }
     }
@@ -374,25 +447,30 @@ class FcmNotificationDispatcher
         string $createdAt,
         string $priority = 'normal',
         ?string $notificationPrefix = null,
+        ?string $dedupeKey = null,
     ): void {
         if (! config('fcm.enabled') || $userId === '' || $entityId === '') {
             return;
         }
+
+        $notificationId = $this->notificationIdFor(
+            $notificationPrefix,
+            $type,
+            $event,
+            $entityId,
+            $userId,
+        );
+        $dedupeKey ??= implode(':', [$type, $event, $entityId, $userId]);
 
         SendFcmNotification::dispatch(
             $userId,
             $type,
             $route,
             $entityId,
-            $this->notificationIdFor(
-                $notificationPrefix,
-                $type,
-                $event,
-                $entityId,
-                $userId,
-            ),
+            $notificationId,
             $createdAt,
             $priority,
+            hash('sha256', $dedupeKey),
         );
     }
 
