@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardSummaryController;
 use App\Http\Controllers\Api\FcmTokenController;
 use App\Http\Controllers\Api\FirestoreCrudController;
+use App\Http\Controllers\Api\InternalNotificationDispatchController;
 use App\Http\Controllers\Api\SupervisionController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\SupervisorAIController;
@@ -14,6 +15,9 @@ Route::get('/health', fn () => response()->json([
     'ok' => true,
     'status' => 'healthy',
 ]))->middleware('throttle:60,1');
+
+Route::post('/internal/notifications/dispatch-due', InternalNotificationDispatchController::class)
+    ->middleware(['notification.scheduler', 'throttle:12,1']);
 
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');

@@ -1,0 +1,59 @@
+name: Dispatch due FCM notifications
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dispatch-due-fcm-notifications
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: ${{ vars.NOTIFICATIONS_SCHEDULER_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      ENDPOINT: https://rehabianex-api.onrender.com/api/internal/notifications/dispatch-due
+      SCHEDULER_SECRET: ${{ secrets.FCM_SCHEDULER_SECRET }}
+    steps:
+      - name: Validate scheduler configuration
+        shell: bash
+        run: |
+          if [ -z "$SCHEDULER_SECRET" ]; then
+            echo "FCM_SCHEDULER_SECRET is not configured."
+            exit 1
+          fi
+
+      - name: Dispatch due notifications
+        shell: bash
+        run: |
+          timestamp="$(date +%s)"
+          canonical="$(printf '%s\n%s\n%s' \
+            "$timestamp" \
+            'POST' \
+            '/api/internal/notifications/dispatch-due')"
+          signature="$(printf '%s' "$canonical" \
+            | openssl dgst -sha256 -hmac "$SCHEDULER_SECRET" \
+            | awk '{print $2}')"
+
+          response="$(curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-all-errors \
+            --max-time 120 \
+            --request POST \
+            --header 'Accept: application/json' \
+            --header "X-Rehabianex-Scheduler-Timestamp: $timestamp" \
+            --header "X-Rehabianex-Scheduler-Signature: $signature" \
+            "$ENDPOINT")"
+
+          echo "$response" | jq -e '.ok == true and (.processed.total | type == "number")' >/dev/null
+          echo "$response" | jq -r \
+            '"Scheduler completed: agenda=\(.processed.agenda), check_in=\(.processed.check_in), total=\(.processed.total)"'

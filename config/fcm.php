@@ -9,6 +9,11 @@ return [
     'vulnerable_priority_enabled' => env('FCM_VULNERABLE_PRIORITY_ENABLED', false),
     'offline_fallback_allowed' => env('FCM_OFFLINE_FALLBACK_ALLOWED', true),
 
+    'scheduler' => [
+        'secret' => env('FCM_SCHEDULER_SECRET', ''),
+        'max_clock_skew_seconds' => env('FCM_SCHEDULER_MAX_CLOCK_SKEW_SECONDS', 300),
+    ],
+
     'android' => [
         'channel_id' => env('FCM_DEFAULT_CHANNEL_ID', 'rehabianex_reminders'),
         'priority' => env('FCM_DEFAULT_ANDROID_PRIORITY', 'high'),

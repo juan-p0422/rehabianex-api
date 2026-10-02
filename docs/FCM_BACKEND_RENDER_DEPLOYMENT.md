@@ -124,6 +124,101 @@ Render debe invocar `php artisan notifications:dispatch-due` cada minuto para
 recordatorios programados. El ledger Firestore proporciona dedupe persistente y
 no depende de un lock por IP ni de tablas SQL.
 
+## Scheduler sin costo adicional para la tesina
+
+### Restricción económica identificada
+
+El Cron Job administrado de Render es la solución nativa preferible para una
+operación productiva con garantía independiente del Web Service. Sin embargo,
+al momento de esta implementación Render no ofrece un plan gratuito para Cron
+Jobs. El Dashboard mostró como plan mínimo `0.5 CPU / 512 MB RAM` con una tarifa
+de `$0.00016 por minuto de ejecución`. La tarifa es pequeña por invocación, pero
+requiere habilitar facturación y crear un segundo servicio. Este requisito se
+consideró un límite económico para un prototipo académico y no una deficiencia
+funcional del módulo FCM.
+
+Tampoco es suficiente ejecutar `php artisan schedule:work` dentro del Web
+Service gratuito. Render suspende una instancia gratuita después de 15 minutos
+sin tráfico HTTP o WebSocket entrante. Cuando la instancia se suspende, el
+proceso del scheduler también se detiene y los recordatorios dejan de respetar
+su periodicidad. La limitación está documentada por Render en:
+<https://render.com/docs/free>.
+
+### Alternativa seleccionada
+
+Para QA, demostración y alcance de tesina se usa GitHub Actions como disparador
+externo gratuito y el procesamiento continúa dentro del backend de Render:
+
+1. `.github/workflows/dispatch-due-notifications.yml` se programa cada cinco
+   minutos, el intervalo mínimo admitido por GitHub Actions.
+2. El workflow despierta el Web Service mediante
+   `POST /api/internal/notifications/dispatch-due`.
+3. El endpoint no acepta payload y ejecuta el mismo
+   `DueNotificationDispatcher` utilizado por el comando Artisan.
+4. La respuesta contiene únicamente conteos de candidatos de agenda y
+   check-in; no contiene UID, tokens, JWT, credenciales ni datos clínicos.
+5. Cada solicitud se autentica con HMAC-SHA256 sobre timestamp, método y ruta.
+   Se rechazan firmas inválidas y timestamps fuera de una ventana de cinco
+   minutos para reducir replay.
+6. Firebase permanece exclusivamente en Render. GitHub recibe solo un secreto
+   técnico dedicado al scheduler y nunca recibe credenciales Firebase.
+
+GitHub documenta que el intervalo mínimo de los workflows programados es cinco
+minutos y que pueden sufrir retrasos en periodos de alta carga:
+<https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax>.
+Los minutos son gratuitos para repositorios públicos. En repositorios privados
+se consumen los minutos incluidos por el plan y podría existir costo al superar
+esa cuota:
+<https://docs.github.com/en/billing/concepts/product-billing/github-actions>.
+
+Por estas razones, la solución es adecuada para una tesina y una demostración,
+pero no constituye una garantía de ejecución en tiempo real. Una instalación
+productiva con SLA debe migrar a Render Cron Job, un worker administrado o un
+scheduler equivalente con disponibilidad contratada.
+
+### Configuración segura
+
+Crear el mismo secreto aleatorio de al menos 32 caracteres en ambos destinos,
+sin copiarlo a archivos versionados ni logs:
+
+- Render Web Service: `FCM_SCHEDULER_SECRET`.
+- GitHub Actions Secret: `FCM_SCHEDULER_SECRET`.
+- GitHub Actions Variable: `NOTIFICATIONS_SCHEDULER_ENABLED=true` únicamente
+  después de desplegar el endpoint y configurar el secreto en ambos lados.
+
+El workflow queda deshabilitado por defecto mientras la variable no tenga el
+valor exacto `true`; de este modo no consume minutos ni genera ejecuciones
+fallidas durante la preparación.
+
+La ruta no usa `/api/notifications/test`, no acepta tipos FCM ni destinatarios,
+no está sujeta al límite `3/min` de pruebas y mantiene un límite defensivo
+independiente de `12/min`. Los eventos reales se deduplican en Firestore por el
+ledger `notification_dispatches`.
+
+Con `FCM_DRY_RUN=true`, el dispatcher de vencidos no consulta candidatos ni
+reserva entradas en el ledger. Esto evita que una validación sin entrega marque
+un recordatorio como enviado antes de abrir una ventana real. La entrega solo
+se procesa cuando `FCM_ENABLED=true` y `FCM_DRY_RUN=false`; los flags clínicos y
+administrativos continúan siendo independientes y permanecen apagados.
+
+### Activación y rollback
+
+Orden de activación:
+
+1. Desplegar el backend con el endpoint protegido.
+2. Configurar `FCM_SCHEDULER_SECRET` en Render y reconstruir el servicio.
+3. Configurar el mismo valor como Secret de GitHub Actions.
+4. Crear `NOTIFICATIONS_SCHEDULER_ENABLED=true` como Variable del repositorio.
+5. Ejecutar primero `workflow_dispatch` y confirmar una respuesta de conteos.
+6. Mantener `APP_ENV=production` y `FCM_DRY_RUN=true` fuera de una ventana E2E.
+
+Rollback sin borrar datos:
+
+1. Establecer `NOTIFICATIONS_SCHEDULER_ENABLED=false` o eliminar la variable.
+2. Mantener `FCM_DRY_RUN=true` y los cuatro flags sensibles en `false`.
+3. Rotar `FCM_SCHEDULER_SECRET` si existe sospecha de exposición.
+4. Conservar el ledger y los documentos históricos para auditoría técnica.
+
 La validación funcional incluye registro y revocación del token, smoke en
 foreground y background, rutas seguras, privacidad visible y consulta de logs
 sanitizados. No se debe copiar el token a la consola para demostrar la prueba.

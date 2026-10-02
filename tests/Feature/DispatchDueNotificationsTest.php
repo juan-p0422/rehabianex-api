@@ -10,7 +10,7 @@ class DispatchDueNotificationsTest extends TestCase
 {
     public function test_command_dispatches_due_agenda_and_daily_checkin_candidates(): void
     {
-        config(['fcm.enabled' => true]);
+        config(['fcm.enabled' => true, 'fcm.dry_run' => false]);
         $db = new DueNotificationsFakeDatabase([
             'agenda_events' => [
                 'event-due' => [
@@ -71,6 +71,23 @@ class DispatchDueNotificationsTest extends TestCase
         $this->app->instance(FcmNotificationDispatcher::class, $dispatcher);
 
         $this->artisan('notifications:dispatch-due')->assertSuccessful();
+    }
+
+    public function test_command_is_a_safe_noop_in_dry_run_to_preserve_dedupe(): void
+    {
+        config(['fcm.enabled' => true, 'fcm.dry_run' => true]);
+        $firebase = $this->createMock(FirebaseService::class);
+        $firebase->expects($this->never())->method('db');
+        $dispatcher = $this->createMock(FcmNotificationDispatcher::class);
+        $dispatcher->expects($this->never())->method('sendAppointmentReminder');
+        $dispatcher->expects($this->never())->method('sendProgressCheckin');
+
+        $this->app->instance(FirebaseService::class, $firebase);
+        $this->app->instance(FcmNotificationDispatcher::class, $dispatcher);
+
+        $this->artisan('notifications:dispatch-due')
+            ->expectsOutputToContain('FCM está en dry-run; no se reservaron recordatorios en el ledger.')
+            ->assertSuccessful();
     }
 }
 

@@ -39,7 +39,7 @@ class ApiSecurityTest extends TestCase
         }
     }
 
-    public function test_every_non_auth_api_route_uses_firebase_authentication(): void
+    public function test_every_non_auth_api_route_uses_its_required_authentication(): void
     {
         $publicApiRoutes = [
             'api/health',
@@ -56,6 +56,13 @@ class ApiSecurityTest extends TestCase
             }
 
             if (in_array($route->uri(), $publicApiRoutes, true)) {
+                continue;
+            }
+
+            if ($route->uri() === 'api/internal/notifications/dispatch-due') {
+                $this->assertContains('notification.scheduler', $route->gatherMiddleware());
+                $this->assertNotContains('firebase.auth', $route->gatherMiddleware());
+
                 continue;
             }
 
