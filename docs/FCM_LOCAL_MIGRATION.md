@@ -152,16 +152,20 @@ Configuración explícita para conservar la entrega real en producción:
 ```env
 APP_ENV=production
 FCM_ENABLED=true
-FCM_DRY_RUN=false
+FCM_DRY_RUN=true
 FCM_DEMO_ENABLED=true
 FCM_PRODUCTION_SEND_ENABLED=true
 FCM_DEMO_RATE_LIMIT_PER_MINUTE=30
 ```
 
-`FCM_PRODUCTION_SEND_ENABLED` es una autorización adicional para el endpoint de
-demostración cuando `APP_ENV=production`; no activa los flags clínicos ni los
-administrativos. Estos pueden permanecer en `false`. Deshabilitar
-`FCM_DEMO_ENABLED` retira la demostración sin afectar los eventos funcionales.
+`FCM_PRODUCTION_SEND_ENABLED` autoriza entrega real únicamente para el endpoint
+de demostración cuando `APP_ENV=production`. Su llamada pasa un override seguro
+al servicio FCM y no modifica `FCM_DRY_RUN`: los eventos de dominio y
+`/notifications/test` conservan validación sin entrega mientras
+`FCM_DRY_RUN=true`. Si el switch productivo está en `false`, la demo también se
+procesa como `validation_only`. No activa los flags clínicos ni administrativos;
+estos pueden permanecer en `false`. Deshabilitar `FCM_DEMO_ENABLED` retira la
+demostración sin afectar los eventos funcionales.
 
 ## Persistencia
 

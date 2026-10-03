@@ -30,12 +30,6 @@ class FcmDemoController extends Controller
             abort(403, 'La demostración FCM está deshabilitada.');
         }
 
-        if (! config('fcm.dry_run', true)
-            && app()->environment('production')
-            && ! config('fcm.production_send_enabled')) {
-            abort(403, 'El envío FCM real en producción no está habilitado explícitamente.');
-        }
-
         $uid = trim((string) $request->attributes->get('firebase_uid'));
         $role = trim((string) $request->attributes->get('firebase_role'));
 
@@ -51,6 +45,9 @@ class FcmDemoController extends Controller
         $notificationId = 'demo_'.Str::uuid()->toString();
         $route = FcmDemoCatalog::routeFor($data['type'], $entityId);
         $createdAt = now()->toIso8601String();
+        $validateOnly = app()->environment('production')
+            ? ! (bool) config('fcm.production_send_enabled')
+            : (bool) config('fcm.dry_run', true);
 
         $result = $fcm->sendToUser(
             $uid,
@@ -60,6 +57,7 @@ class FcmDemoController extends Controller
             $notificationId,
             $createdAt,
             'normal',
+            $validateOnly,
         );
 
         if ($result['status'] === 'no_active_tokens') {
@@ -71,8 +69,8 @@ class FcmDemoController extends Controller
             'sent' => $result['sent'] > 0,
             'type' => $data['type'],
             'notification_id' => $notificationId,
-            'mode' => config('fcm.dry_run', true) ? 'validation_only' : 'real_delivery',
-            'message' => config('fcm.dry_run', true)
+            'mode' => $validateOnly ? 'validation_only' : 'real_delivery',
+            'message' => $validateOnly
                 ? 'Demostración FCM validada en modo dry-run.'
                 : 'Demostración FCM enviada al usuario autenticado.',
             'notification' => [

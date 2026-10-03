@@ -28,6 +28,7 @@ class FcmService
         string $notificationId,
         string $createdAt,
         string $priority = 'normal',
+        ?bool $validateOnly = null,
     ): array {
         if (! config('fcm.enabled')) {
             return $this->result('disabled');
@@ -59,7 +60,7 @@ class FcmService
                 $this->sendMessage(
                     $token,
                     $payload,
-                    (bool) config('fcm.dry_run', true),
+                    $validateOnly ?? (bool) config('fcm.dry_run', true),
                 );
                 $sent++;
             } catch (NotFound) {

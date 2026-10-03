@@ -157,30 +157,32 @@ class FcmDemoEndpointTest extends TestCase
         }
     }
 
-    public function test_real_production_demo_requires_the_explicit_production_switch(): void
+    public function test_production_demo_without_explicit_switch_remains_validation_only(): void
     {
         config(['fcm.dry_run' => false, 'fcm.production_send_enabled' => false]);
         $this->app->detectEnvironment(fn (): string => 'production');
+        $this->tokens->seedToken('patient-user', str_repeat('patient-token-', 8));
 
         $messaging = $this->createMock(Messaging::class);
-        $messaging->expects($this->never())->method('send');
+        $messaging->expects($this->once())
+            ->method('send')
+            ->with($this->isInstanceOf(CloudMessage::class), true)
+            ->willReturn([]);
         $request = Request::create('/api/notifications/demo', 'POST', [
             'type' => FcmNotificationTypes::APPOINTMENT_REMINDER,
         ]);
         $request->attributes->set('firebase_uid', 'patient-user');
         $request->attributes->set('firebase_role', 'patient');
 
-        try {
-            (new FcmDemoController)($request, new FcmService($this->tokens, $messaging));
-            $this->fail('El envío productivo debía requerir el switch explícito.');
-        } catch (HttpException $exception) {
-            $this->assertSame(403, $exception->getStatusCode());
-        }
+        $response = (new FcmDemoController)($request, new FcmService($this->tokens, $messaging));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('validation_only', $response->getData(true)['mode']);
     }
 
-    public function test_explicit_production_switch_allows_real_delivery_to_the_same_user(): void
+    public function test_explicit_production_switch_overrides_global_dry_run_only_for_demo(): void
     {
-        config(['fcm.dry_run' => false, 'fcm.production_send_enabled' => true]);
+        config(['fcm.dry_run' => true, 'fcm.production_send_enabled' => true]);
         $this->app->detectEnvironment(fn (): string => 'production');
         $this->tokens->seedToken('patient-user', str_repeat('patient-token-', 8));
 
@@ -202,5 +204,26 @@ class FcmDemoEndpointTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('real_delivery', $response->getData(true)['mode']);
+    }
+
+    public function test_production_switch_does_not_override_dry_run_for_regular_service_calls(): void
+    {
+        config(['fcm.dry_run' => true, 'fcm.production_send_enabled' => true]);
+        $this->tokens->seedToken('patient-user', str_repeat('patient-token-', 8));
+
+        $messaging = $this->createMock(Messaging::class);
+        $messaging->expects($this->once())
+            ->method('send')
+            ->with($this->isInstanceOf(CloudMessage::class), true)
+            ->willReturn([]);
+
+        (new FcmService($this->tokens, $messaging))->sendToUser(
+            'patient-user',
+            FcmNotificationTypes::APPOINTMENT_REMINDER,
+            '/agenda-events/domain-event',
+            'domain-event',
+            'domain-notification',
+            now()->toIso8601String(),
+        );
     }
 }
