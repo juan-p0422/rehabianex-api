@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AdminSupervisorController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardSummaryController;
 use App\Http\Controllers\Api\FcmTokenController;
+use App\Http\Controllers\Api\FcmDemoController;
 use App\Http\Controllers\Api\FirestoreCrudController;
 use App\Http\Controllers\Api\InternalNotificationDispatchController;
 use App\Http\Controllers\Api\SupervisionController;
@@ -37,6 +38,8 @@ Route::middleware('firebase.auth')->group(function () {
         ->middleware('throttle:10,1');
     Route::post('/notifications/test', [FcmTokenController::class, 'test'])
         ->middleware('throttle:3,1');
+    Route::post('/notifications/demo', FcmDemoController::class)
+        ->middleware('throttle:fcm-demo');
 
     Route::get('/supervisors/{id}/patients', [PatientController::class, 'supervisedPatients']);
     Route::get('/supervisors/{uid}/dashboard-summary', [DashboardSummaryController::class, 'supervisor'])

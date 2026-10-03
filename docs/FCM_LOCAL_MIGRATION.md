@@ -101,6 +101,68 @@ arbitrario. Ningun evento funcional pasa por ese endpoint, por lo que cuatro o
 mas eventos reales distintos pueden emitirse; solo el duplicado exacto se
 bloquea mediante ledger.
 
+## Demostración reproducible de los 18 tipos
+
+`POST /api/notifications/demo` permite presentar el contrato FCM sin crear ni
+modificar eventos de dominio. Requiere autenticación Firebase y acepta
+exclusivamente:
+
+```json
+{"type":"appointment_reminder"}
+```
+
+El backend selecciona el título, texto, ruta e identificadores sintéticos. No
+acepta token, UID, destinatario, rol, texto, ruta, prioridad ni datos clínicos
+enviados por el cliente. El mensaje se entrega únicamente a los tokens Android
+activos del usuario autenticado y el tipo debe ser compatible con su rol:
+
+La respuesta conserva en el nivel superior `ok`, `sent`, `type`, `message` y
+`notification_id`, compatibles con Android. Además incluye el contrato visible
+sintético bajo `notification` y únicamente conteos bajo `delivery`; nunca
+devuelve tokens ni identidad del usuario.
+
+- paciente: agenda, check-in, avance, logro, intervención y respuesta de
+  supervisión;
+- supervisor: solicitud, desvinculación, consentimiento, riesgo, recaída,
+  prioridad vulnerable y aprobación;
+- administrador: validaciones pendientes y conflicto de supervisión;
+- `system_notice` y `test_notification`: disponibles para cualquier rol.
+
+La unión de estas listas cubre los 18 tipos del catálogo. Todos usan los textos
+canónicos y rutas seguras existentes. Cada solicitud crea IDs `demo_*` nuevos,
+por lo que una demostración se puede repetir sin simular una recaída, aprobar
+una cuenta o alterar Firestore de dominio.
+
+El endpoint usa `throttle:fcm-demo`, limitado por UID Firebase y no por IP. El
+valor predeterminado es 30 solicitudes por minuto por cuenta. `/notifications/test`
+permanece sin cambios con su límite `3/min`.
+
+Configuración para una demostración validada, sin entrega:
+
+```env
+FCM_ENABLED=true
+FCM_DRY_RUN=true
+FCM_DEMO_ENABLED=true
+FCM_PRODUCTION_SEND_ENABLED=false
+FCM_DEMO_RATE_LIMIT_PER_MINUTE=30
+```
+
+Configuración explícita para conservar la entrega real en producción:
+
+```env
+APP_ENV=production
+FCM_ENABLED=true
+FCM_DRY_RUN=false
+FCM_DEMO_ENABLED=true
+FCM_PRODUCTION_SEND_ENABLED=true
+FCM_DEMO_RATE_LIMIT_PER_MINUTE=30
+```
+
+`FCM_PRODUCTION_SEND_ENABLED` es una autorización adicional para el endpoint de
+demostración cuando `APP_ENV=production`; no activa los flags clínicos ni los
+administrativos. Estos pueden permanecer en `false`. Deshabilitar
+`FCM_DEMO_ENABLED` retira la demostración sin afectar los eventos funcionales.
+
 ## Persistencia
 
 Cerrar la app no revoca el token. Logout si lo revoca. El backend intenta
