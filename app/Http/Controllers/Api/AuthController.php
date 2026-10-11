@@ -199,7 +199,7 @@ class AuthController extends Controller
     {
         $data = $this->payload($request);
         $validator = Validator::make($data, [
-            'refresh_token' => ['required', 'string'],
+            'refresh_token' => ['required', 'string', 'max:16384'],
         ]);
 
         if ($validator->fails()) {
