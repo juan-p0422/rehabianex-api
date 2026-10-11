@@ -33,6 +33,11 @@ El perfil de `patients` o `supervisors` conserva internamente:
 No se almacena el texto completo del aviso. La fecha `accepted_at` se genera en
 el servidor; Android no puede proporcionarla ni modificarla durante el registro.
 
+La existencia de esta evidencia no demuestra por sí sola que la interfaz haya
+mostrado el aviso completo antes de solicitar datos. Esa comprobación requiere el
+texto o URL oficial de la misma versión y una prueba del flujo Android. Una casilla
+con un resumen no sustituye la presentación del aviso.
+
 ## Respuesta pública
 
 Registro y `GET /auth/me` proyectan sólo versión, fecha y estado. Se omiten del

@@ -1,4 +1,4 @@
-# Proyección de identidad anónima del paciente
+# Proyección de privacidad visual del paciente
 
 Fecha: 2026-08-04.
 
@@ -11,7 +11,7 @@ Auth y no respetaba los flags almacenados en el perfil Firestore.
 
 ## Regla final
 
-Se considera identidad privada cuando cualquiera de estas condiciones es
+Se considera presentación visual privada cuando cualquiera de estas condiciones es
 verdadera:
 
 - `is_anonymous=true`;
@@ -35,6 +35,12 @@ Para supervisores, `full_name` se devuelve como `null` si la identidad es
 privada. `display_name` y `safe_display_name` contienen el apodo permitido o una
 referencia no identificable. La proyección no agrega correo, teléfono ni campos
 administrativos.
+
+Esta función no crea una cuenta anónima ni garantiza anonimato técnico o legal.
+Firebase conserva un UID y el backend conserva el perfil y su actividad. El campo
+heredado `is_anonymous` y `privacy_mode` controlan solamente la información que se
+muestra; no deben usarse para deducir el tipo de cuenta. Una eventual identidad
+técnica sin credenciales usará un campo separado, `account_type`.
 
 ## Endpoints alineados
 
