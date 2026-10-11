@@ -5,15 +5,20 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiErrorResponse;
 use App\Models\Firestore\FirestoreResource;
+use App\Rules\MexicoPhone;
+use App\Rules\NonBlankText;
 use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
 use App\Services\FirestoreAccessService;
+use App\Support\MexicoPhoneNumber;
 use App\Support\PatientDisplayName;
+use App\Support\ProfileFormOptions;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
@@ -367,9 +372,9 @@ class FirestoreCrudController extends Controller
     {
         $rules = match ($resource) {
             'patients' => [
-                'full_name' => ['sometimes', 'string', 'max:120'],
-                'nickname' => ['sometimes', 'nullable', 'string', 'max:80'],
-                'phone' => ['sometimes', 'nullable', 'string', 'max:30'],
+                'full_name' => ['sometimes', 'required', 'string', new NonBlankText, 'max:120'],
+                'nickname' => ['sometimes', 'nullable', 'string', new NonBlankText, 'max:80'],
+                'phone' => ['sometimes', 'nullable', 'string', new MexicoPhone],
                 'age' => ['sometimes', 'integer', 'min:1', 'max:120'],
                 'gender' => ['sometimes', 'nullable', 'string', 'max:40'],
                 'is_anonymous' => ['sometimes', 'boolean'],
@@ -380,8 +385,24 @@ class FirestoreCrudController extends Controller
                 'photo_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
             ],
             'supervisors' => [
-                'full_name' => ['sometimes', 'string', 'max:120'],
+                'full_name' => ['sometimes', 'required', 'string', new NonBlankText, 'max:120'],
+                'phone' => ['sometimes', 'nullable', 'string', new MexicoPhone],
+                'photo_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
+                'supervisor_type' => [
+                    'sometimes',
+                    'string',
+                    Rule::in(ProfileFormOptions::SUPERVISOR_TYPES),
+                ],
+                'supervisor_type_other' => [
+                    'nullable',
+                    'string',
+                    new NonBlankText,
+                    'max:80',
+                    'required_if:supervisor_type,other',
+                ],
+                'license_number' => ['sometimes', 'nullable', 'string', new NonBlankText, 'max:80'],
                 'specialties' => ['sometimes', 'array', 'max:20'],
+                'specialties.*' => ['string', new NonBlankText, 'max:120'],
             ],
             'patient-notes' => [
                 'mood' => [$creating ? 'required' : 'sometimes', 'string', 'max:80'],
@@ -396,9 +417,21 @@ class FirestoreCrudController extends Controller
                 'note_text' => ['sometimes', 'string', 'max:5000'],
             ],
             'support-contacts' => [
-                'name' => [$creating ? 'required' : 'sometimes', 'string', 'max:120'],
-                'phone' => [$creating ? 'required' : 'sometimes', 'string', 'max:30'],
-                'relationship' => ['sometimes', 'string', 'max:80'],
+                'name' => [$creating ? 'required' : 'sometimes', 'required', 'string', new NonBlankText, 'max:120'],
+                'phone' => [$creating ? 'required' : 'sometimes', 'required', 'string', new MexicoPhone],
+                'relationship' => ['sometimes', 'nullable', 'string', new NonBlankText, 'max:80'],
+                'relationship_category' => [
+                    'sometimes',
+                    'string',
+                    Rule::in(ProfileFormOptions::CONTACT_RELATIONSHIP_CATEGORIES),
+                ],
+                'relationship_other' => [
+                    'nullable',
+                    'string',
+                    new NonBlankText,
+                    'max:80',
+                    'required_if:relationship_category,other',
+                ],
                 'priority' => ['sometimes', 'integer', 'between:1,10'],
                 'can_receive_alerts' => ['sometimes', 'boolean'],
                 'notes' => ['sometimes', 'string', 'max:1000'],
@@ -451,7 +484,12 @@ class FirestoreCrudController extends Controller
             default => [],
         };
 
-        $validator = Validator::make($data, $rules);
+        $validator = Validator::make($data, $rules, [
+            'supervisor_type.in' => 'El tipo de supervisor seleccionado no es válido.',
+            'supervisor_type_other.required_if' => 'Describe el tipo de supervisor cuando seleccionas Otro.',
+            'relationship_category.in' => 'La categoría de relación seleccionada no es válida.',
+            'relationship_other.required_if' => 'Describe la relación cuando seleccionas Otro.',
+        ]);
 
         if ($validator->fails()) {
             throw new ValidationException($validator);
@@ -549,6 +587,23 @@ class FirestoreCrudController extends Controller
 
     private function normalizeCompatibilityPayload(string $resource, array $data, bool $creating): array
     {
+        if (in_array($resource, ['patients', 'supervisors', 'support-contacts'], true)
+            && array_key_exists('phone', $data)) {
+            $data['phone'] = MexicoPhoneNumber::normalize($data['phone']);
+        }
+
+        if ($resource === 'supervisors'
+            && array_key_exists('supervisor_type', $data)
+            && $data['supervisor_type'] !== 'other') {
+            $data['supervisor_type_other'] = null;
+        }
+
+        if ($resource === 'support-contacts'
+            && array_key_exists('relationship_category', $data)
+            && $data['relationship_category'] !== 'other') {
+            $data['relationship_other'] = null;
+        }
+
         if ($resource !== 'notification-settings') {
             return $data;
         }

@@ -17,6 +17,11 @@ la fuente principal cuando existe conectividad; Android conserva únicamente
 fallback local básico y no sensible. Render y producción quedan fuera del
 cierre local actual.
 
+Las reglas añadidas en la etapa 2 para teléfono mexicano, tipos de supervisor,
+categorías de contactos y sincronización segura de correo se documentan en
+`docs/STAGE2_FORM_PROFILE_CONTRACT.md`. Ese documento amplía este contrato sin
+eliminar los campos heredados.
+
 Este documento define el contrato mínimo obligatorio que el backend debe mantener
 para el cliente Android. Las rutas se expresan relativas a la URL base:
 
@@ -336,7 +341,11 @@ Obligatorios: `email`, `password` (mínimo 6 caracteres), `full_name`, `role`,
 `privacy_notice_accepted=true` y `privacy_notice_version` con la versión vigente.
 `role` admite `patient` o `supervisor`.
 
-Opcionales: `phone`, `gender`, `age`, `supervisor_type`.
+Opcionales: `phone`, `gender`, `age`, `supervisor_type` y
+`supervisor_type_other`. El alcance telefónico es México: `phone` acepta 10
+dígitos nacionales con separadores comunes o el formato internacional `+52`, y
+se almacena como `+52` seguido de 10 dígitos. `supervisor_type=other` exige
+`supervisor_type_other` de hasta 80 caracteres.
 
 **Respuesta 201:**
 
@@ -502,7 +511,8 @@ se conserva para compatibilidad.
 }
 ```
 
-Obligatorio: `refresh_token`. Opcionales: ninguno.
+Obligatorio: `refresh_token`, string de máximo 16 384 caracteres. Opcionales:
+ninguno.
 
 **Respuesta 200:**
 
@@ -521,11 +531,16 @@ Obligatorio: `refresh_token`. Opcionales: ninguno.
 }
 ```
 
-Errores: `401`, `422`, `429`, `502`.
+Errores: `401` para token inválido, expirado, revocado o usuario deshabilitado;
+`422` para validación; `429` para el límite local; `502` para indisponibilidad o
+fallo temporal del proveedor.
 
 Envolvente: respuesta especializada de autenticación.
 
 Android producción: **sí**.
+
+Android debe compartir una sola renovación concurrente, reintentar la petición
+original una vez y conservar la sesión ante `502`.
 
 ## 3.1 Cerrar sesión
 
@@ -625,6 +640,23 @@ vez de interpretar la hora de lectura como versión del documento.
 `consent_summary` solo aparece para pacientes que tengan al menos un
 consentimiento activo. No expone `consent_text`, notas ni información de otros
 usuarios.
+
+## 4.1 Sincronizar correo verificado
+
+**Método y ruta:** `POST /auth/email/sync`
+
+**Acceso:** protegido. Límite: 10 solicitudes por minuto. Body vacío.
+
+Android primero completa `verifyBeforeUpdateEmail` y la reautenticación que
+Firebase requiera. Después de verificar el enlace y renovar el ID token, llama
+este endpoint. Laravel no recibe ni confía en un correo enviado por el body:
+copia al perfil únicamente el correo verificado del usuario Firebase.
+
+**Respuesta 200:** `ok`, `message` y el `profile` estable con el correo ya
+sincronizado. Responde `409` si Firebase aún no marca el correo como verificado,
+`401` si la sesión no es válida y `500` si falla la escritura del perfil. Ante
+un fallo posterior al cambio en Firebase, Android reintenta este endpoint; no
+encola el correo como un `PATCH` ordinario de perfil.
 
 ### Variante de perfil administrador
 
@@ -903,7 +935,7 @@ Obligatorio: al menos un campo modificable.
 |---|---|---|
 | `full_name` | string | Máximo 120 |
 | `nickname` | string o null | Máximo 80 |
-| `phone` | string o null | Máximo 30 |
+| `phone` | string o null | México: 10 dígitos nacionales; se almacena como `+52` y 10 dígitos |
 | `age` | integer | 1 a 120 |
 | `gender` | string o null | Máximo 40 |
 | `photo_url` | URL o null | Máximo 2048 |
@@ -1762,6 +1794,7 @@ Android producción: **sí**.
   "name": "Marta López",
   "phone": "+524491112233",
   "relationship": "hermana",
+  "relationship_category": "family",
   "priority": 1,
   "can_receive_alerts": true,
   "notes": "Contacto principal"
@@ -1770,7 +1803,11 @@ Android producción: **sí**.
 
 Obligatorios: `name`, `phone`.
 
-Opcionales: `relationship`, `priority` de 1 a 10, `can_receive_alerts`, `notes`.
+Opcionales: `relationship` heredado, `relationship_category`,
+`relationship_other`, `priority` de 1 a 10, `can_receive_alerts`, `notes`.
+Las categorías nuevas son `family`, `friend`, `partner`,
+`health_professional`, `support_peer`, `work_or_school` y `other`; esta última
+exige `relationship_other`.
 
 **Respuesta 201:** creación CRUD con `collection: "support_contacts"`.
 
@@ -1791,6 +1828,7 @@ Android producción: **sí**.
   "name": "Marta López",
   "phone": "+524491112233",
   "relationship": "hermana",
+  "relationship_category": "family",
   "priority": 1,
   "can_receive_alerts": false,
   "notes": "Actualizado"

@@ -20,6 +20,7 @@ class AndroidApiContractTest extends TestCase
             'refresh' => ['POST', 'api/auth/refresh'],
             'logout' => ['POST', 'api/auth/logout'],
             'me' => ['GET', 'api/auth/me'],
+            'sync verified email' => ['POST', 'api/auth/email/sync'],
             'update patient' => ['PATCH', 'api/patients/{id}'],
             'show patient' => ['GET', 'api/patients/{id}'],
             'list patient notes' => ['GET', 'api/patients/{id}/notes'],
@@ -105,6 +106,15 @@ class AndroidApiContractTest extends TestCase
             'GET',
             'api/ai/supervisor-chat/eligibility',
             ['api', 'firebase.auth', 'throttle:30,1']
+        );
+    }
+
+    public function test_email_sync_is_authenticated_and_rate_limited(): void
+    {
+        $this->assertRouteUsesMiddleware(
+            'POST',
+            'api/auth/email/sync',
+            ['api', 'firebase.auth', 'throttle:10,1']
         );
     }
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\Api\AuthController;
 use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Mockery;
@@ -72,6 +73,40 @@ class AuthRefreshContractTest extends TestCase
         $this->assertSame('synthetic-refresh-token-2', $payload['tokens']['refresh_token']);
         $this->assertSame(3600, $payload['tokens']['expires_in']);
         $this->assertSame('Bearer', $payload['tokens']['token_type']);
+    }
+
+    public function test_temporary_provider_failure_returns_502(): void
+    {
+        config(['services.firebase.web_api_key' => 'safe-test-key']);
+        Http::fake([
+            'https://securetoken.googleapis.com/*' => Http::response([], 503),
+        ]);
+
+        $response = $this->controller()->refresh(Request::create(
+            '/api/auth/refresh',
+            'POST',
+            ['refresh_token' => 'synthetic-refresh-token'],
+        ));
+
+        $this->assertSame(502, $response->getStatusCode());
+        $this->assertFalse($response->getData(true)['ok']);
+    }
+
+    public function test_provider_network_error_returns_502_without_exposing_details(): void
+    {
+        config(['services.firebase.web_api_key' => 'safe-test-key']);
+        Http::fake(static fn () => throw new ConnectionException('synthetic network detail'));
+
+        $response = $this->controller()->refresh(Request::create(
+            '/api/auth/refresh',
+            'POST',
+            ['refresh_token' => 'synthetic-refresh-token'],
+        ));
+        $payload = $response->getData(true);
+
+        $this->assertSame(502, $response->getStatusCode());
+        $this->assertFalse($payload['ok']);
+        $this->assertStringNotContainsString('synthetic network detail', $payload['message']);
     }
 
     private function controller(): AuthController

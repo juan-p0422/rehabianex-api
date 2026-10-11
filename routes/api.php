@@ -3,8 +3,8 @@
 use App\Http\Controllers\Api\AdminSupervisorController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardSummaryController;
-use App\Http\Controllers\Api\FcmTokenController;
 use App\Http\Controllers\Api\FcmDemoController;
+use App\Http\Controllers\Api\FcmTokenController;
 use App\Http\Controllers\Api\FirestoreCrudController;
 use App\Http\Controllers\Api\InternalNotificationDispatchController;
 use App\Http\Controllers\Api\SupervisionController;
@@ -30,6 +30,8 @@ Route::prefix('auth')->group(function () {
 
 Route::middleware('firebase.auth')->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::post('/auth/email/sync', [AuthController::class, 'syncEmail'])
+        ->middleware('throttle:10,1');
     Route::post('/auth/logout', [AuthController::class, 'logout']);
 
     Route::post('/notifications/fcm-token', [FcmTokenController::class, 'register'])

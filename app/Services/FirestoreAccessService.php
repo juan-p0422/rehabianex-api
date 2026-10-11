@@ -281,8 +281,8 @@ class FirestoreAccessService
             $data['patient_uid'] = $uid;
 
             return $this->only($data, [
-                'patient_uid', 'name', 'relationship', 'phone', 'priority',
-                'can_receive_alerts', 'notes',
+                'patient_uid', 'name', 'relationship', 'relationship_category',
+                'relationship_other', 'phone', 'priority', 'can_receive_alerts', 'notes',
             ]);
         }
 
@@ -443,7 +443,7 @@ class FirestoreAccessService
         if ($resource === 'supervisors' && $role === 'supervisor' && ($current['uid'] ?? null) === $uid) {
             return $this->only($data, [
                 'full_name', 'phone', 'photo_url', 'supervisor_type',
-                'license_number', 'specialties',
+                'supervisor_type_other', 'license_number', 'specialties',
             ]);
         }
 
@@ -457,7 +457,8 @@ class FirestoreAccessService
 
         if ($resource === 'support-contacts' && $role === 'patient') {
             return $this->only($data, [
-                'name', 'relationship', 'phone', 'priority', 'can_receive_alerts', 'notes',
+                'name', 'relationship', 'relationship_category', 'relationship_other',
+                'phone', 'priority', 'can_receive_alerts', 'notes',
             ]);
         }
 
@@ -627,7 +628,7 @@ class FirestoreAccessService
             && $this->role($request) === 'patient'
             && ($data['uid'] ?? null) !== $this->uid($request)) {
             return $this->only($data, [
-                'uid', 'full_name', 'photo_url', 'supervisor_type',
+                'uid', 'full_name', 'photo_url', 'supervisor_type', 'supervisor_type_other',
                 'specialties', 'authorized', 'verified', 'status', 'supervisor_code',
             ]);
         }
@@ -671,8 +672,9 @@ class FirestoreAccessService
                 'ai_risk_level', 'created_at', 'updated_at',
             ],
             'support-contacts' => [
-                'contact_id', 'patient_uid', 'name', 'relationship', 'phone',
-                'priority', 'can_receive_alerts', 'notes', 'created_at', 'updated_at',
+                'contact_id', 'patient_uid', 'name', 'relationship',
+                'relationship_category', 'relationship_other', 'phone', 'priority',
+                'can_receive_alerts', 'notes', 'created_at', 'updated_at',
             ],
             'agenda-events' => [
                 'event_id', 'patient_uid', 'type', 'title', 'starts_at', 'ends_at',

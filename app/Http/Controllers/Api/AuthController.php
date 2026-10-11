@@ -4,10 +4,15 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiErrorResponse;
+use App\Rules\MexicoPhone;
+use App\Rules\NonBlankText;
 use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
+use App\Support\MexicoPhoneNumber;
 use App\Support\PatientDisplayName;
+use App\Support\ProfileFormOptions;
 use Carbon\Carbon;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -37,21 +42,37 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         $data = $this->payload($request);
+        $data['phone'] = MexicoPhoneNumber::normalize($data['phone'] ?? null);
         $validator = Validator::make($data, [
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string', 'min:6'],
-            'full_name' => ['required', 'string', 'max:120'],
+            'email' => ['required', 'email', 'max:254'],
+            'password' => ['required', 'string', 'min:6', 'max:4096'],
+            'full_name' => ['required', 'string', new NonBlankText, 'max:120'],
             'role' => ['required', Rule::in($this->publicRegistrationRoles())],
-            'phone' => ['nullable', 'string', 'max:30'],
+            'phone' => ['nullable', 'string', new MexicoPhone],
             'gender' => ['nullable', 'string', 'max:40'],
             'age' => ['nullable', 'integer', 'min:1', 'max:120'],
-            'supervisor_type' => ['nullable', 'string', 'max:80'],
+            'supervisor_type' => ['nullable', 'string', Rule::in(ProfileFormOptions::SUPERVISOR_TYPES)],
+            'supervisor_type_other' => [
+                'nullable',
+                'string',
+                new NonBlankText,
+                'max:80',
+                Rule::requiredIf(
+                    ($data['role'] ?? null) === 'supervisor'
+                    && ($data['supervisor_type'] ?? null) === 'other'
+                ),
+            ],
             'privacy_notice_accepted' => ['required', 'accepted'],
             'privacy_notice_version' => [
                 'required',
                 'string',
                 Rule::in([$this->privacyNoticeVersion()]),
             ],
+        ], [
+            'email.max' => 'El correo no puede exceder 254 caracteres.',
+            'password.max' => 'La contraseña excede la longitud permitida.',
+            'supervisor_type.in' => 'El tipo de supervisor seleccionado no es válido.',
+            'supervisor_type_other.required' => 'Describe el tipo de supervisor cuando seleccionas Otro.',
         ]);
 
         if ($validator->fails()) {
@@ -79,6 +100,9 @@ class AuthController extends Controller
                 'gender' => $data['gender'] ?? null,
                 'age' => isset($data['age']) ? (int) $data['age'] : null,
                 'supervisor_type' => $data['supervisor_type'] ?? null,
+                'supervisor_type_other' => ($data['role'] ?? null) === 'supervisor'
+                    ? ($data['supervisor_type_other'] ?? null)
+                    : null,
                 'provider' => 'password',
                 'status' => 'active',
                 'legal_acceptance' => [
@@ -207,19 +231,30 @@ class AuthController extends Controller
         }
 
         $apiKey = $this->apiKey();
-        $response = Http::asForm()
-            ->timeout(30)
-            ->post($this->firebaseAuthUrl(
-                'securetoken.googleapis.com',
-                '/v1/token',
-                $apiKey
-            ), [
-                'grant_type' => 'refresh_token',
-                'refresh_token' => $data['refresh_token'],
+        try {
+            $response = Http::asForm()
+                ->timeout(30)
+                ->post($this->firebaseAuthUrl(
+                    'securetoken.googleapis.com',
+                    '/v1/token',
+                    $apiKey
+                ), [
+                    'grant_type' => 'refresh_token',
+                    'refresh_token' => $data['refresh_token'],
+                ]);
+        } catch (ConnectionException $e) {
+            Log::warning('Firebase refresh provider unavailable.', [
+                'exception' => get_class($e),
             ]);
 
+            return ApiErrorResponse::make(
+                'No se pudo refrescar la sesion por un fallo temporal del proveedor.',
+                502
+            );
+        }
+
         if (! $response->successful()) {
-            return $this->firebaseError('No se pudo refrescar la sesion.', $response);
+            return $this->refreshError($response);
         }
 
         $tokens = $response->json();
@@ -290,6 +325,39 @@ class AuthController extends Controller
             ]);
         } catch (Throwable $e) {
             return $this->error('No se pudo cerrar la sesion.', $e, 401);
+        }
+    }
+
+    public function syncEmail(Request $request)
+    {
+        try {
+            $uid = (string) $request->attributes->get('firebase_uid');
+            $user = $request->attributes->get('firebase_user');
+            $email = trim((string) ($user->email ?? ''));
+
+            if ($email === ''
+                || filter_var($email, FILTER_VALIDATE_EMAIL) === false
+                || ($user->emailVerified ?? false) !== true) {
+                return ApiErrorResponse::make(
+                    'Firebase Authentication todavía no confirma un correo verificado para sincronizar.',
+                    409,
+                    ['email' => ['Completa la verificación del nuevo correo y renueva el ID token.']]
+                );
+            }
+
+            $role = $this->roleForUser($user, 'patient');
+            $profile = $this->stableProfile(
+                $this->storeProfile($uid, $role, ['email' => $email]),
+                $role
+            );
+
+            return response()->json([
+                'ok' => true,
+                'message' => 'Correo verificado sincronizado correctamente.',
+                'profile' => $profile,
+            ]);
+        } catch (Throwable $e) {
+            return $this->error('No se pudo sincronizar el correo verificado.', $e);
         }
     }
 
@@ -615,6 +683,7 @@ class AuthController extends Controller
             'authorized' => $role === 'patient',
             'verified' => $role === 'patient',
             'supervisor_type' => null,
+            'supervisor_type_other' => null,
             'supervisor_code' => null,
             'is_anonymous' => false,
             'privacy_mode' => false,
@@ -775,6 +844,26 @@ class AuthController extends Controller
         $status = $response->status() >= 400 && $response->status() < 500 ? 401 : 502;
 
         return ApiErrorResponse::make($message, $status);
+    }
+
+    private function refreshError($response)
+    {
+        $providerCode = strtoupper((string) data_get($response->json(), 'error.message', ''));
+        $invalidCodes = [
+            'TOKEN_EXPIRED',
+            'USER_DISABLED',
+            'USER_NOT_FOUND',
+            'INVALID_REFRESH_TOKEN',
+            'INVALID_GRANT_TYPE',
+        ];
+        $status = in_array($providerCode, $invalidCodes, true) ? 401 : 502;
+
+        return ApiErrorResponse::make(
+            $status === 401
+                ? 'El token de renovación es inválido, expiró o fue revocado.'
+                : 'No se pudo refrescar la sesión por un fallo temporal del proveedor.',
+            $status
+        );
     }
 
     private function error(string $message, Throwable $e, int $status = 500)
