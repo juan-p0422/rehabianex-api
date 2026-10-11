@@ -730,6 +730,12 @@ Estas rutas proyectan una lista cerrada de datos del perfil supervisor. No
 devuelven pacientes, notas emocionales ni consentimientos y nunca eliminan
 físicamente el perfil.
 
+El listado acepta `q`, `status`, `authorized`, `verified`, `limit` (1 a 100) y
+`page` (desde 1). Conserva `count` y `data`, y agrega `page`, `limit`, `total` y
+`has_more`. La búsqueda `q` cubre nombre, correo, tipo, tipo libre y código.
+Las respuestas de detalle exponen las marcas mínimas de auditoría de rechazo,
+autorización, suspensión y reactivación; nunca incluyen datos de pacientes.
+
 ### Guarda de funciones sensibles del supervisor
 
 Un supervisor solo supera la guarda sensible cuando su perfil cumple
@@ -1301,8 +1307,10 @@ Android producción: **sí**.
 }
 ```
 
-Obligatorios: `supervisor_uid`, `explicit_consent` con valor `true`,
-`consent_text`, `scope` con al menos un elemento.
+Obligatorios: `supervisor_uid`, `explicit_consent` booleano, `consent_text`,
+`scope` con al menos un elemento. `explicit_consent=false` crea un documento
+`inactive`, sin permisos efectivos; `true` lo crea `active`. Nunca se agregan
+alcances por omisión.
 
 Opcional: `type`, aunque Android debe enviar
 `type: "supervision_and_alerts"` para mantener semántica estable.
@@ -1332,14 +1340,17 @@ Android producción: **sí**.
 }
 ```
 
-Obligatorio: al menos uno de `explicit_consent`, `consent_text`, `scope`.
+Obligatorio: al menos uno de `explicit_consent`, `consent_text`, `scope` o
+`status`.
 
-Opcionales: los tres campos anteriores.
+`status` admite las transiciones `inactive -> active|revoked`,
+`active -> paused|revoked` y `paused -> active|revoked`. `revoked` es terminal.
+Los alcances pueden editarse en `inactive`, `active` o `paused`.
 
 **Respuesta 200:** envolvente de actualización CRUD con
 `collection: "consents"`.
 
-Errores: `401`, `403`, `404`, `422`, `500`.
+Errores: `401`, `403`, `404`, `409`, `422`, `500`.
 
 Android producción: **sí**. Para revocar debe enviar
 `explicit_consent: false`.
@@ -2323,6 +2334,10 @@ patient_phone
 
 Solo el paciente propietario puede pausar, reactivar, revocar o modificar los
 scopes. Un supervisor recibe `403`.
+
+Un consentimiento creado con `explicit_consent=false` se proyecta como
+`inactive` y todos sus `permissions` son falsos. Un consentimiento `revoked` no
+puede reactivarse; para un consentimiento posterior se crea un documento nuevo.
 
 ### Proyeccion para supervisores
 

@@ -21,7 +21,7 @@ que Android editó una versión antigua.
 | `agenda-events` / `agenda_events` | `event_id` | `patient_uid`, `supervisor_uid` si aplica | Sí | Opcional | Sí | Persistente para agenda propia |
 | `support-contacts` / `support_contacts` | `contact_id` | `patient_uid` | Sí | No | Sí | Persistente, solo contactos propios |
 | `notification-settings` / `notification_settings` | `settings_id` = `patient_uid` | `patient_uid` | Sí | No | Sí | Persistente, solo paciente propietario |
-| `consents` | `consent_id` | `patient_uid`, `supervisor_uid` | Sí | `active/paused/revoked` | No se recomienda borrar | Estado de seguridad; refrescar, no confiar solo en caché |
+| `consents` | `consent_id` | `patient_uid`, `supervisor_uid` | Sí | `inactive/active/paused/revoked` | No se recomienda borrar | Estado de seguridad; refrescar, no confiar solo en caché |
 | `supervision-requests` / `supervision_requests` | `request_id` | ambos UID | Sí | `pending/accepted/rejected/cancelled` | DELETE legacy cancela lógicamente | Caché operativa, servidor autoritativo |
 | `interventions` | `intervention_id` | ambos UID | Sí | Sí | Sí para actores autorizados | No persistir para uso sin validación reciente |
 | `local-resources` / `local_resources` | `resource_id` | No aplica | Depende del seeder/origen | Depende del catálogo | Solo administración/origen | Persistente; catálogo no clínico |
