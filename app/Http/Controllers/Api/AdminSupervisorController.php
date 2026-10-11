@@ -43,6 +43,8 @@ class AdminSupervisorController extends Controller
         'authorized_by',
         'authorization_notes',
         'rejection_reason',
+        'rejected_at',
+        'rejected_by',
         'suspension_reason',
         'suspended_at',
         'suspended_by',
@@ -74,7 +76,9 @@ class AdminSupervisorController extends Controller
             ])],
             'authorized' => ['nullable', 'boolean'],
             'verified' => ['nullable', 'boolean'],
+            'q' => ['nullable', 'string', 'max:120'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
         if ($validator->fails()) {
@@ -83,6 +87,7 @@ class AdminSupervisorController extends Controller
 
         $filters = $validator->validated();
         $limit = (int) ($filters['limit'] ?? 50);
+        $page = (int) ($filters['page'] ?? 1);
         $data = [];
 
         foreach ($this->db->collection('supervisors')->documents() as $snapshot) {
@@ -108,11 +113,16 @@ class AdminSupervisorController extends Controller
                 (string) ($left['created_at'] ?? '')
             )
         );
-        $data = array_slice($data, 0, $limit);
+        $total = count($data);
+        $data = array_slice($data, ($page - 1) * $limit, $limit);
 
         return response()->json([
             'ok' => true,
             'count' => count($data),
+            'page' => $page,
+            'limit' => $limit,
+            'total' => $total,
+            'has_more' => $page * $limit < $total,
             'data' => $data,
         ]);
     }
@@ -309,6 +319,25 @@ class AdminSupervisorController extends Controller
         foreach (['authorized', 'verified'] as $field) {
             if (array_key_exists($field, $filters)
                 && $supervisor[$field] !== filter_var($filters[$field], FILTER_VALIDATE_BOOLEAN)) {
+                return false;
+            }
+        }
+
+        $query = trim((string) ($filters['q'] ?? ''));
+
+        if ($query !== '') {
+            $haystack = implode(' ', array_map(
+                static fn (string $field): string => (string) ($supervisor[$field] ?? ''),
+                [
+                    'full_name',
+                    'email',
+                    'supervisor_type',
+                    'supervisor_type_other',
+                    'supervisor_code',
+                ]
+            ));
+
+            if (! str_contains(mb_strtolower($haystack), mb_strtolower($query))) {
                 return false;
             }
         }

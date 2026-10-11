@@ -316,13 +316,13 @@ class FirestoreAccessService
                 abort(409, 'Debe existir una relación de supervisión aceptada antes de otorgar consentimiento.');
             }
 
-            if (($data['explicit_consent'] ?? null) !== true) {
-                abort(422, 'El consentimiento debe aceptarse explicitamente.');
-            }
-
             $data['patient_uid'] = $uid;
-            $data['status'] = 'active';
-            $data['accepted_at'] = Carbon::now()->toIso8601String();
+            $data['status'] = ($data['explicit_consent'] ?? false) === true
+                ? 'active'
+                : 'inactive';
+            $data['accepted_at'] = $data['status'] === 'active'
+                ? Carbon::now()->toIso8601String()
+                : null;
             $data['revoked_at'] = null;
             $data['paused_at'] = null;
 
@@ -401,14 +401,13 @@ class FirestoreAccessService
 
             $data['patient_uid'] = $uid;
             $data['patient_name'] = $this->patientDisplayName($uid);
-            $data['patient_email'] = $this->patientEmail($uid);
             $data['type'] = $type;
             $data['status'] = 'pending';
             $data['requested_at'] = Carbon::now()->toIso8601String();
             $data['responded_at'] = null;
 
             return $this->only($data, [
-                'patient_uid', 'patient_name', 'patient_email', 'supervisor_uid', 'type', 'status', 'message',
+                'patient_uid', 'patient_name', 'supervisor_uid', 'type', 'status', 'message',
                 'requested_at', 'responded_at',
             ]);
         }
@@ -472,6 +471,15 @@ class FirestoreAccessService
             $updated = $this->only($data, ['explicit_consent', 'consent_text', 'scope', 'status']);
             $now = Carbon::now()->toIso8601String();
             $explicitConsentProvided = array_key_exists('explicit_consent', $updated);
+            $currentStatus = $this->consentStatus($current);
+
+            if ($currentStatus === 'revoked' && $updated !== []) {
+                abort(409, 'Un consentimiento revocado es terminal; crea uno nuevo para volver a consentir.');
+            }
+
+            if (($updated['status'] ?? null) === 'inactive') {
+                abort(422, 'El estado inactive solo se asigna al crear un consentimiento no activado.');
+            }
 
             if (array_key_exists('explicit_consent', $updated)
                 && $updated['explicit_consent'] === false
@@ -489,6 +497,23 @@ class FirestoreAccessService
 
             $activating = ($updated['status'] ?? null) === 'active'
                 || ($updated['explicit_consent'] ?? null) === true;
+
+            $targetStatus = $explicitConsentProvided
+                ? ($updated['explicit_consent'] === true ? 'active' : 'revoked')
+                : ($updated['status'] ?? null);
+
+            if ($targetStatus !== null && $targetStatus !== $currentStatus) {
+                $allowedTransitions = [
+                    'inactive' => ['active', 'revoked'],
+                    'active' => ['paused', 'revoked'],
+                    'paused' => ['active', 'revoked'],
+                    'revoked' => [],
+                ];
+
+                if (! in_array($targetStatus, $allowedTransitions[$currentStatus] ?? [], true)) {
+                    abort(409, 'La transición de estado del consentimiento no está permitida.');
+                }
+            }
 
             if ($activating) {
                 $this->assertConsentCanBeActivated($current, $updated, $uid);
@@ -618,7 +643,8 @@ class FirestoreAccessService
             $patientUid = (string) ($data['patient_uid'] ?? '');
 
             if ($patientUid !== '') {
-                $data['patient_name'] = $data['patient_name'] ?? $this->patientDisplayName($patientUid);
+                // Recalcular evita revelar un nombre histórico después de activar privacidad visual.
+                $data['patient_name'] = $this->patientDisplayName($patientUid);
             }
 
             unset($data['patient_email']);
@@ -838,6 +864,10 @@ class FirestoreAccessService
             return 'paused';
         }
 
+        if (($consent['status'] ?? null) === 'inactive') {
+            return 'inactive';
+        }
+
         if (($consent['explicit_consent'] ?? null) === false) {
             return 'revoked';
         }
@@ -985,14 +1015,6 @@ class FirestoreAccessService
         $data = $snapshot->exists() ? $snapshot->data() : [];
 
         return PatientDisplayName::forSupervisor($data, $this->patientReference($patientUid));
-    }
-
-    private function patientEmail(string $patientUid): ?string
-    {
-        $snapshot = $this->db->collection('patients')->document($patientUid)->snapshot();
-        $data = $snapshot->exists() ? $snapshot->data() : [];
-
-        return $data['email'] ?? null;
     }
 
     private function supervisorCode(string $uid): string

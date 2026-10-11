@@ -449,7 +449,7 @@ class FirestoreCrudController extends Controller
                 'consent_text' => [$creating ? 'required' : 'sometimes', 'string', 'max:3000'],
                 'scope' => [$creating ? 'required' : 'sometimes', 'array', 'min:1', 'max:20'],
                 'scope.*' => ['string', 'distinct', 'in:patient_notes,agenda_events,support_contacts,ai_chat_summary,patient_achievements,patient_phone'],
-                'status' => ['sometimes', 'in:active,paused,revoked'],
+                'status' => ['sometimes', 'in:inactive,active,paused,revoked'],
             ],
             'notification-settings' => [
                 'daily_check_in_enabled' => ['sometimes', 'boolean'],

@@ -8,6 +8,7 @@ use App\Services\FirestoreAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Mockery;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class SupervisionLifecycleTest extends TestCase
@@ -37,6 +38,7 @@ class SupervisionLifecycleTest extends TestCase
 
         $this->assertSame('link', $linkRequest['type']);
         $this->assertSame('pending', $linkRequest['status']);
+        $this->assertArrayNotHasKey('patient_email', $linkRequest);
 
         // Documento histórico: deliberadamente se omite type.
         unset($linkRequest['type']);
@@ -191,9 +193,90 @@ class SupervisionLifecycleTest extends TestCase
                 $this->request('supervisor', 'supervisor-1')
             );
             $this->fail('El supervisor no debe modificar consentimientos.');
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $exception) {
+        } catch (HttpException $exception) {
             $this->assertSame(403, $exception->getStatusCode());
         }
+    }
+
+    public function test_inactive_consent_grants_nothing_until_patient_selects_scopes_and_activates(): void
+    {
+        [$store, $access] = $this->environment(true);
+        $request = $this->request('patient', 'patient-1');
+        $inactive = $access->prepareCreate('consents', [
+            'supervisor_uid' => 'supervisor-1',
+            'explicit_consent' => false,
+            'consent_text' => 'Pendiente de selección granular.',
+            'scope' => ['agenda_events'],
+        ], $request);
+        $store->data['consents']['consent-2'] = array_replace($inactive, [
+            'consent_id' => 'consent-2',
+            'created_at' => '2099-01-01T00:00:00Z',
+        ]);
+
+        $this->assertSame('inactive', $inactive['status']);
+        $this->assertNull($inactive['accepted_at']);
+        $this->assertFalse(
+            $access->supervisorCanAccessPatient('supervisor-1', 'patient-1', ['agenda_events'])
+        );
+
+        $changes = $access->prepareUpdate(
+            'consents',
+            $store->data['consents']['consent-2'],
+            ['status' => 'active', 'scope' => ['agenda_events', 'patient_phone']],
+            $request
+        );
+        $store->data['consents']['consent-2'] = array_replace(
+            $store->data['consents']['consent-2'],
+            $changes
+        );
+
+        $this->assertSame('active', $changes['status']);
+        $this->assertSame(['agenda_events', 'patient_phone'], $changes['scope']);
+        $this->assertTrue(
+            $access->supervisorCanAccessPatient('supervisor-1', 'patient-1', ['agenda_events'])
+        );
+        $this->assertFalse(
+            $access->supervisorCanAccessPatient('supervisor-1', 'patient-1', ['patient_notes'])
+        );
+    }
+
+    public function test_revoked_consent_is_terminal(): void
+    {
+        [$store, $access] = $this->environment(true);
+        $request = $this->request('patient', 'patient-1');
+        $revoked = $access->prepareUpdate(
+            'consents',
+            $store->data['consents']['consent-1'],
+            ['status' => 'revoked'],
+            $request
+        );
+        $current = array_replace($store->data['consents']['consent-1'], $revoked);
+
+        try {
+            $access->prepareUpdate('consents', $current, ['status' => 'active'], $request);
+            $this->fail('Un consentimiento revocado no debe reactivarse.');
+        } catch (HttpException $exception) {
+            $this->assertSame(409, $exception->getStatusCode());
+        }
+    }
+
+    public function test_supervisor_view_recomputes_private_patient_name_instead_of_using_stale_request_name(): void
+    {
+        [$store, $access] = $this->environment();
+        $store->data['patients']['patient-1']['privacy_mode'] = true;
+        $store->data['patients']['patient-1']['nickname'] = '';
+
+        $sanitized = $access->sanitize('supervision-requests', [
+            'patient_uid' => 'patient-1',
+            'patient_name' => 'Nombre histórico visible',
+            'patient_email' => 'stale@example.test',
+            'supervisor_uid' => 'supervisor-1',
+            'status' => 'pending',
+        ], $this->request('supervisor', 'supervisor-1'));
+
+        $this->assertStringStartsWith('Paciente ', $sanitized['patient_name']);
+        $this->assertNotSame('Nombre histórico visible', $sanitized['patient_name']);
+        $this->assertArrayNotHasKey('patient_email', $sanitized);
     }
 
     private function environment(bool $linked = false): array
@@ -261,7 +344,7 @@ class SupervisionFlowFirestore
 
     public function runTransaction(callable $callback): void
     {
-        $callback(new SupervisionFlowTransaction());
+        $callback(new SupervisionFlowTransaction);
     }
 }
 

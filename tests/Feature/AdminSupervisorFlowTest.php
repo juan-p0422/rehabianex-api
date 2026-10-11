@@ -20,7 +20,7 @@ class AdminSupervisorFlowTest extends TestCase
     {
         foreach (['patient', 'supervisor'] as $role) {
             $request = $this->request($role, 'user-uid', ['status' => 'active']);
-            $response = (new RequireAdmin())->handle(
+            $response = (new RequireAdmin)->handle(
                 $request,
                 fn () => response()->json(['ok' => true])
             );
@@ -55,7 +55,7 @@ class AdminSupervisorFlowTest extends TestCase
         $access = new FirestoreAccessService($firebase);
         $adminRequest = $this->request('admin', 'admin-1', ['status' => 'active']);
 
-        $listResponse = (new RequireAdmin())->handle(
+        $listResponse = (new RequireAdmin)->handle(
             $adminRequest,
             fn () => $controller->index($adminRequest)
         );
@@ -104,6 +104,56 @@ class AdminSupervisorFlowTest extends TestCase
         $this->assertSame('active', $reactivated['status']);
         $this->assertSame('admin-1', $reactivated['reactivated_by']);
         $access->assertAuthorizedSupervisor('supervisor-1');
+    }
+
+    public function test_admin_list_supports_search_and_stable_pagination_metadata(): void
+    {
+        $store = new AdminFlowFirestore([
+            'supervisors' => [
+                'supervisor-1' => [
+                    'uid' => 'supervisor-1',
+                    'full_name' => 'Ángela Terapeuta',
+                    'email' => 'angela@example.test',
+                    'supervisor_type' => 'therapist',
+                    'supervisor_code' => 'RA-AAAA1111',
+                    'authorized' => true,
+                    'verified' => true,
+                    'status' => 'active',
+                    'created_at' => '2026-10-02T00:00:00Z',
+                ],
+                'supervisor-2' => [
+                    'uid' => 'supervisor-2',
+                    'full_name' => 'Patrocinador Dos',
+                    'email' => 'dos@example.test',
+                    'supervisor_type' => 'support_sponsor',
+                    'supervisor_code' => 'RA-BBBB2222',
+                    'authorized' => true,
+                    'verified' => true,
+                    'status' => 'active',
+                    'created_at' => '2026-10-01T00:00:00Z',
+                ],
+            ],
+        ]);
+        $firebase = Mockery::mock(FirebaseService::class);
+        $firebase->shouldReceive('db')->andReturn($store);
+        $controller = new AdminSupervisorController(
+            $firebase,
+            Mockery::mock(FcmNotificationDispatcher::class)
+        );
+
+        $request = Request::create('/api/admin/supervisors', 'GET', [
+            'q' => 'terapeuta',
+            'limit' => 1,
+            'page' => 1,
+        ]);
+        $response = $controller->index($request)->getData(true);
+
+        $this->assertSame(1, $response['count']);
+        $this->assertSame(1, $response['page']);
+        $this->assertSame(1, $response['limit']);
+        $this->assertSame(1, $response['total']);
+        $this->assertFalse($response['has_more']);
+        $this->assertSame('supervisor-1', $response['data'][0]['uid']);
     }
 
     private function newSupervisorProfile(): array

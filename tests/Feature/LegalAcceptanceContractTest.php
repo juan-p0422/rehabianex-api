@@ -141,6 +141,61 @@ class LegalAcceptanceContractTest extends TestCase
             'accepted_at' => '2026-08-03T12:00:00-06:00',
             'status' => 'accepted',
         ], $response->getData(true)['profile']['legal_acceptance']);
+        $this->assertNull($response->getData(true)['profile']['supervisor']);
+    }
+
+    public function test_auth_me_includes_linked_supervisor_name_and_type_for_patient(): void
+    {
+        $user = $this->firebaseUser();
+        $profile = [
+            'uid' => $user->uid,
+            'role' => 'patient',
+            'supervisor_uid' => 'supervisor-linked',
+            'supervision_status' => 'accepted',
+        ];
+
+        $patientSnapshot = Mockery::mock();
+        $patientSnapshot->shouldReceive('exists')->once()->andReturnTrue();
+        $patientSnapshot->shouldReceive('data')->once()->andReturn($profile);
+        $patientDocument = Mockery::mock();
+        $patientDocument->shouldReceive('snapshot')->once()->andReturn($patientSnapshot);
+        $patientCollection = Mockery::mock();
+        $patientCollection->shouldReceive('document')->once()->with($user->uid)->andReturn($patientDocument);
+
+        $supervisorSnapshot = Mockery::mock();
+        $supervisorSnapshot->shouldReceive('exists')->once()->andReturnTrue();
+        $supervisorSnapshot->shouldReceive('data')->once()->andReturn([
+            'uid' => 'supervisor-linked',
+            'full_name' => 'Supervisora Sintética',
+            'supervisor_type' => 'therapist',
+        ]);
+        $supervisorDocument = Mockery::mock();
+        $supervisorDocument->shouldReceive('snapshot')->once()->andReturn($supervisorSnapshot);
+        $supervisorCollection = Mockery::mock();
+        $supervisorCollection->shouldReceive('document')->once()->with('supervisor-linked')->andReturn($supervisorDocument);
+
+        $consentDocuments = Mockery::mock();
+        $consentDocuments->shouldReceive('getIterator')->andReturn(new \ArrayIterator([]));
+        $consentQuery = Mockery::mock();
+        $consentQuery->shouldReceive('where')->once()->with('patient_uid', '=', $user->uid)->andReturnSelf();
+        $consentQuery->shouldReceive('documents')->once()->andReturn($consentDocuments);
+
+        $db = Mockery::mock();
+        $db->shouldReceive('collection')->once()->with('patients')->andReturn($patientCollection);
+        $db->shouldReceive('collection')->once()->with('supervisors')->andReturn($supervisorCollection);
+        $db->shouldReceive('collection')->once()->with('consents')->andReturn($consentQuery);
+        $request = Request::create('/api/auth/me', 'GET');
+        $request->attributes->set('firebase_uid', $user->uid);
+        $request->attributes->set('firebase_user', $user);
+
+        $response = (new AuthController($this->firebaseStub(Mockery::mock(), $db)))->me($request);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([
+            'uid' => 'supervisor-linked',
+            'full_name' => 'Supervisora Sintética',
+            'supervisor_type' => 'therapist',
+        ], $response->getData(true)['profile']['supervisor']);
     }
 
     public function test_pending_supervisor_registration_dispatches_the_real_admin_validation_event(): void

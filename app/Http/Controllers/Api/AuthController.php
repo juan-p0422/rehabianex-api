@@ -280,6 +280,9 @@ class AuthController extends Controller
             $user = $request->attributes->get('firebase_user');
             $role = $this->roleForUser($user, 'patient');
             $profile = $this->stableProfile($this->profileForUid($uid, $role), $role);
+            if ($role === 'patient') {
+                $profile['supervisor'] = $this->linkedSupervisorSummary($profile);
+            }
             $consentSummary = $this->consentSummary($uid, $role);
 
             if ($consentSummary !== null) {
@@ -537,6 +540,29 @@ class AuthController extends Controller
         }
 
         return null;
+    }
+
+    private function linkedSupervisorSummary(array $patient): ?array
+    {
+        $supervisorUid = trim((string) ($patient['supervisor_uid'] ?? ''));
+
+        if ($supervisorUid === '' || ($patient['supervision_status'] ?? null) !== 'accepted') {
+            return null;
+        }
+
+        $snapshot = $this->db->collection('supervisors')->document($supervisorUid)->snapshot();
+
+        if (! $snapshot->exists()) {
+            return null;
+        }
+
+        $supervisor = $snapshot->data();
+
+        return [
+            'uid' => $supervisorUid,
+            'full_name' => (string) (($supervisor['full_name'] ?? null) ?: 'Supervisor RehabiAnex'),
+            'supervisor_type' => $supervisor['supervisor_type'] ?? null,
+        ];
     }
 
     private function roleForUser($user, string $default): string
