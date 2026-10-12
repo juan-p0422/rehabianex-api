@@ -442,6 +442,88 @@ class FirestorePermissionsAuditTest extends TestCase
         ));
     }
 
+    public function test_patient_attendance_report_is_separate_from_event_status_and_audited(): void
+    {
+        [, $access] = $this->environment();
+        $current = [
+            'event_id' => 'event-1',
+            'patient_uid' => 'patient-1',
+            'supervisor_uid' => 'supervisor-1',
+            'status' => 'scheduled',
+        ];
+
+        $changes = $access->prepareUpdate(
+            'agenda-events',
+            $current,
+            ['attendance_reported' => true],
+            $this->request('patient', 'patient-1')
+        );
+
+        $this->assertTrue($changes['attendance_reported']);
+        $this->assertSame('patient-1', $changes['attendance_reported_by']);
+        $this->assertNotEmpty($changes['attendance_reported_at']);
+        $this->assertArrayNotHasKey('status', $changes);
+
+        $cleared = $access->prepareUpdate(
+            'agenda-events',
+            array_replace($current, $changes),
+            ['attendance_reported' => null],
+            $this->request('patient', 'patient-1')
+        );
+
+        $this->assertNull($cleared['attendance_reported']);
+        $this->assertNull($cleared['attendance_reported_at']);
+        $this->assertNull($cleared['attendance_reported_by']);
+    }
+
+    public function test_supervisor_cannot_author_report_patient_attendance(): void
+    {
+        [$store, $access] = $this->environment();
+        $store->data['consents']['consent-1']['scope'] = ['agenda_events'];
+        $current = [
+            'event_id' => 'event-1',
+            'patient_uid' => 'patient-1',
+            'supervisor_uid' => 'supervisor-1',
+            'status' => 'completed',
+        ];
+
+        $this->assertForbidden(fn () => $access->prepareUpdate(
+            'agenda-events',
+            $current,
+            ['attendance_reported' => true],
+            $this->request('supervisor', 'supervisor-1')
+        ));
+    }
+
+    public function test_new_event_cannot_claim_attendance_and_defaults_to_unreported(): void
+    {
+        [, $access] = $this->environment();
+        $patient = $this->request('patient', 'patient-1');
+
+        $created = $access->prepareCreate('agenda-events', [
+            'patient_uid' => 'patient-1',
+            'title' => 'Cita sintética',
+            'starts_at' => '2026-10-12T10:00:00-06:00',
+            'status' => 'scheduled',
+        ], $patient);
+
+        $this->assertNull($created['attendance_reported']);
+        $this->assertNull($created['attendance_reported_at']);
+        $this->assertNull($created['attendance_reported_by']);
+
+        try {
+            $access->prepareCreate('agenda-events', [
+                'patient_uid' => 'patient-1',
+                'title' => 'Cita sintética',
+                'starts_at' => '2026-10-12T10:00:00-06:00',
+                'attendance_reported' => true,
+            ], $patient);
+            $this->fail('La creación no debía aceptar una asistencia ya reportada.');
+        } catch (HttpException $exception) {
+            $this->assertSame(422, $exception->getStatusCode());
+        }
+    }
+
     private function environment(): array
     {
         $store = new PermissionAuditFirestore([

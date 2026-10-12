@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiErrorResponse;
+use App\Rules\NonBlankText;
 use App\Services\FcmNotificationDispatcher;
 use App\Services\FirebaseService;
 use App\Services\FirestoreAccessService;
@@ -164,7 +165,9 @@ class PatientController extends Controller
             'sleep_quality' => ['nullable', 'integer', 'between:0,10'],
             'had_relapse' => ['required', 'boolean'],
             'triggers' => ['nullable', 'array', 'max:20'],
+            'triggers.*' => ['filled', 'string', new NonBlankText, 'max:120', 'distinct'],
             'coping_actions' => ['nullable', 'array', 'max:20'],
+            'coping_actions.*' => ['filled', 'string', new NonBlankText, 'max:120', 'distinct'],
             'note_text' => ['nullable', 'string', 'max:5000'],
         ]);
 

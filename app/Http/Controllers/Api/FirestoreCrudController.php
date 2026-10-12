@@ -379,7 +379,18 @@ class FirestoreCrudController extends Controller
                 'gender' => ['sometimes', 'nullable', 'string', 'max:40'],
                 'is_anonymous' => ['sometimes', 'boolean'],
                 'privacy_mode' => ['sometimes', 'boolean'],
-                'sobriety_start_date' => ['sometimes', 'nullable', 'date'],
+                'sobriety_start_date' => [
+                    'sometimes',
+                    'nullable',
+                    'date',
+                    function (string $attribute, mixed $value, \Closure $fail): void {
+                        if ($value === null || ! $this->isFutureMexicoCalendarDate($value)) {
+                            return;
+                        }
+
+                        $fail('La fecha de sobriedad no puede estar en el futuro.');
+                    },
+                ],
                 'primary_risks' => ['sometimes', 'array', 'max:20'],
                 'primary_risks.*' => ['string', 'max:120'],
                 'photo_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
@@ -405,15 +416,17 @@ class FirestoreCrudController extends Controller
                 'specialties.*' => ['string', new NonBlankText, 'max:120'],
             ],
             'patient-notes' => [
-                'mood' => [$creating ? 'required' : 'sometimes', 'string', 'max:80'],
-                'mood_score' => ['sometimes', 'integer', 'between:0,10'],
-                'anxiety_level' => ['sometimes', 'integer', 'between:0,10'],
-                'craving_level' => ['sometimes', 'integer', 'between:0,10'],
+                'mood' => [$creating ? 'required' : 'sometimes', 'string', new NonBlankText, 'max:80'],
+                'mood_score' => [$creating ? 'required' : 'sometimes', 'integer', 'between:0,10'],
+                'anxiety_level' => [$creating ? 'required' : 'sometimes', 'integer', 'between:0,10'],
+                'craving_level' => [$creating ? 'required' : 'sometimes', 'integer', 'between:0,10'],
                 'energy_level' => ['sometimes', 'integer', 'between:0,10'],
                 'sleep_quality' => ['sometimes', 'integer', 'between:0,10'],
-                'had_relapse' => ['sometimes', 'boolean'],
+                'had_relapse' => [$creating ? 'required' : 'sometimes', 'boolean'],
                 'triggers' => ['sometimes', 'array', 'max:20'],
+                'triggers.*' => ['filled', 'string', new NonBlankText, 'max:120', 'distinct'],
                 'coping_actions' => ['sometimes', 'array', 'max:20'],
+                'coping_actions.*' => ['filled', 'string', new NonBlankText, 'max:120', 'distinct'],
                 'note_text' => ['sometimes', 'string', 'max:5000'],
             ],
             'support-contacts' => [
@@ -442,6 +455,7 @@ class FirestoreCrudController extends Controller
                 'starts_at' => [$creating ? 'required' : 'sometimes', 'date'],
                 'ends_at' => ['sometimes', 'date', 'after:starts_at'],
                 'status' => ['sometimes', 'in:scheduled,completed,cancelled'],
+                'attendance_reported' => ['sometimes', 'nullable', 'boolean'],
             ],
             'consents' => [
                 'supervisor_uid' => [$creating ? 'required' : 'sometimes', 'string', 'max:128'],
@@ -520,6 +534,20 @@ class FirestoreCrudController extends Controller
         };
 
         return $data;
+    }
+
+    private function isFutureMexicoCalendarDate(mixed $value): bool
+    {
+        try {
+            $text = (string) $value;
+            $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', $text) === 1
+                ? Carbon::createFromFormat('Y-m-d', $text, 'America/Mexico_City')->startOfDay()
+                : Carbon::parse($text)->setTimezone('America/Mexico_City')->startOfDay();
+
+            return $date->gt(Carbon::now('America/Mexico_City')->startOfDay());
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private function newDocumentId(string $resource, array $data = []): string

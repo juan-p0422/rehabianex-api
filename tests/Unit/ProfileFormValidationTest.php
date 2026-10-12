@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\FirestoreCrudController;
 use App\Services\FirestoreAccessService;
 use App\Support\MexicoPhoneNumber;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use ReflectionClass;
@@ -197,6 +198,70 @@ class ProfileFormValidationTest extends TestCase
         ], 'patient');
 
         $this->assertSame('449-123-4567', $profile['phone']);
+    }
+
+    public function test_legacy_patient_notes_route_requires_answered_scales_but_accepts_zero(): void
+    {
+        $controller = $this->controllerWithoutConstructor();
+
+        $this->invoke($controller, 'validatePayload', [
+            'patient-notes',
+            [
+                'mood' => 'Sin malestar',
+                'mood_score' => 0,
+                'anxiety_level' => 0,
+                'craving_level' => 0,
+                'had_relapse' => false,
+            ],
+            true,
+        ]);
+
+        try {
+            $this->invoke($controller, 'validatePayload', [
+                'patient-notes',
+                ['mood' => 'Sin contestar'],
+                true,
+            ]);
+            $this->fail('Las escalas ausentes debían rechazarse en la ruta de compatibilidad.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('mood_score', $exception->errors());
+            $this->assertArrayHasKey('anxiety_level', $exception->errors());
+            $this->assertArrayHasKey('craving_level', $exception->errors());
+            $this->assertArrayHasKey('had_relapse', $exception->errors());
+        }
+    }
+
+    public function test_sobriety_date_uses_mexico_calendar_day_and_rejects_future_dates(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-11T00:30:00-06:00'));
+        $controller = $this->controllerWithoutConstructor();
+
+        try {
+            $this->invoke($controller, 'validatePayload', [
+                'patients',
+                ['sobriety_start_date' => '2026-10-11'],
+                false,
+            ]);
+            $this->invoke($controller, 'validatePayload', [
+                'patients',
+                ['sobriety_start_date' => '2026-10-12T04:00:00+00:00'],
+                false,
+            ]);
+
+            $this->invoke($controller, 'validatePayload', [
+                'patients',
+                ['sobriety_start_date' => '2026-10-12'],
+                false,
+            ]);
+            $this->fail('Una fecha futura debía rechazarse.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(
+                'La fecha de sobriedad no puede estar en el futuro.',
+                $exception->errors()['sobriety_start_date'][0]
+            );
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     private function controllerWithoutConstructor(): FirestoreCrudController

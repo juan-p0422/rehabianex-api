@@ -102,9 +102,51 @@ class PatientNoteIdempotencyTest extends TestCase
         $this->assertCount(1, $store->notes);
     }
 
+    public function test_explicit_zero_scales_are_saved_and_are_not_treated_as_unanswered(): void
+    {
+        [$controller, $store] = $this->environment();
+        $payload = $this->validPayload('550e8400-e29b-41d4-a716-446655440005');
+        $payload['mood_score'] = 0;
+        $payload['anxiety_level'] = 0;
+        $payload['craving_level'] = 0;
+
+        $response = $controller->storeNote($this->request('patient-a', $payload), 'patient-a');
+
+        $this->assertSame(201, $response->getStatusCode());
+        $this->assertSame(0, $response->getData(true)['note']['mood_score']);
+        $this->assertSame(0, $response->getData(true)['note']['anxiety_level']);
+        $this->assertSame(0, $response->getData(true)['note']['craving_level']);
+        $this->assertCount(1, $store->notes);
+    }
+
+    public function test_other_trigger_and_action_accept_legitimate_text_but_reject_blank_or_duplicates(): void
+    {
+        [$controller, $store] = $this->environment();
+        $valid = $this->validPayload('550e8400-e29b-41d4-a716-446655440006');
+        $valid['triggers'] = ['Reunión familiar difícil'];
+        $valid['coping_actions'] = ['Hablar con María José'];
+
+        $created = $controller->storeNote($this->request('patient-a', $valid), 'patient-a');
+
+        $this->assertSame(201, $created->getStatusCode());
+        $this->assertSame(['Reunión familiar difícil'], $created->getData(true)['note']['triggers']);
+        $this->assertSame(['Hablar con María José'], $created->getData(true)['note']['coping_actions']);
+
+        $invalid = $this->validPayload('550e8400-e29b-41d4-a716-446655440007');
+        $invalid['triggers'] = ['   '];
+        $invalid['coping_actions'] = ['Respirar', 'Respirar'];
+        $failed = $controller->storeNote($this->request('patient-a', $invalid), 'patient-a');
+
+        $this->assertSame(422, $failed->getStatusCode());
+        $errors = $failed->getData(true)['errors'];
+        $this->assertArrayHasKey('triggers.0', $errors);
+        $this->assertArrayHasKey('coping_actions.1', $errors);
+        $this->assertCount(1, $store->notes);
+    }
+
     private function environment(): array
     {
-        $store = new InMemoryPatientNotesStore();
+        $store = new InMemoryPatientNotesStore;
         $firebase = Mockery::mock(FirebaseService::class);
         $firebase->shouldReceive('db')->once()->andReturn($store);
         $access = Mockery::mock(FirestoreAccessService::class);

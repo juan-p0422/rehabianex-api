@@ -287,6 +287,12 @@ class FirestoreAccessService
         }
 
         if ($resource === 'agenda-events') {
+            if (array_key_exists('attendance_reported', $data)
+                || array_key_exists('attendance_reported_at', $data)
+                || array_key_exists('attendance_reported_by', $data)) {
+                abort(422, 'La asistencia solo puede autorreportarse después de crear el evento.');
+            }
+
             if ($role === 'patient') {
                 $this->assertOwnerValue($data, 'patient_uid', $uid);
                 $data['patient_uid'] = $uid;
@@ -298,9 +304,13 @@ class FirestoreAccessService
                 $data['supervisor_uid'] = $uid;
             }
 
-            return $this->only($data, [
+            return array_replace($this->only($data, [
                 'patient_uid', 'supervisor_uid', 'type', 'title', 'starts_at',
                 'ends_at', 'location', 'status', 'notes',
+            ]), [
+                'attendance_reported' => null,
+                'attendance_reported_at' => null,
+                'attendance_reported_by' => null,
             ]);
         }
 
@@ -462,9 +472,26 @@ class FirestoreAccessService
         }
 
         if ($resource === 'agenda-events') {
-            return $this->only($data, [
+            $updated = $this->only($data, [
                 'type', 'title', 'starts_at', 'ends_at', 'location', 'status', 'notes',
+                'attendance_reported',
             ]);
+
+            if (array_key_exists('attendance_reported', $updated)) {
+                if ($role !== 'patient' || ($current['patient_uid'] ?? null) !== $uid) {
+                    abort(403, 'Solo el paciente propietario puede autorreportar su asistencia.');
+                }
+
+                if ($updated['attendance_reported'] === null) {
+                    $updated['attendance_reported_at'] = null;
+                    $updated['attendance_reported_by'] = null;
+                } else {
+                    $updated['attendance_reported_at'] = Carbon::now()->toIso8601String();
+                    $updated['attendance_reported_by'] = $uid;
+                }
+            }
+
+            return $updated;
         }
 
         if ($resource === 'consents' && $role === 'patient') {
@@ -704,7 +731,8 @@ class FirestoreAccessService
             ],
             'agenda-events' => [
                 'event_id', 'patient_uid', 'type', 'title', 'starts_at', 'ends_at',
-                'location', 'status', 'notes', 'created_at', 'updated_at',
+                'location', 'status', 'attendance_reported', 'attendance_reported_at',
+                'notes', 'created_at', 'updated_at',
             ],
             'patient-achievements' => [
                 'patient_achievement_id', 'patient_uid', 'achievement_id',

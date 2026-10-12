@@ -947,7 +947,7 @@ Obligatorio: al menos un campo modificable.
 | `photo_url` | URL o null | Máximo 2048 |
 | `is_anonymous` | boolean | |
 | `privacy_mode` | boolean | |
-| `sobriety_start_date` | fecha ISO 8601 o null | |
+| `sobriety_start_date` | fecha ISO 8601 o null | No puede ser posterior al día actual en `America/Mexico_City` |
 | `primary_risks` | array de strings | Máximo 20; cada valor máximo 120 |
 
 `sobriety_start_date` y `primary_risks` forman parte de la lógica actual y se
@@ -1231,6 +1231,14 @@ header `Idempotency-Key`. Si llegan ambos deben ser idénticos. El valor admite
 Los niveles numéricos admiten valores de 0 a 10. Android no debe enviar
 `patient_uid`, `note_id`, `ai_risk_score`, `ai_risk_level`, `created_at` ni
 `updated_at`.
+
+El valor numérico `0` es una respuesta válida y no equivale a un campo sin
+contestar. La omisión de cualquiera de las tres escalas obligatorias produce
+`422`, también en la ruta CRUD de compatibilidad `POST /patient-notes`.
+`triggers` y `coping_actions` admiten hasta 20 textos distintos, no vacíos y de
+máximo 120 caracteres cada uno. La opción visual **Otro** no añade un campo al
+contrato: Android envía el texto legítimo directamente en el arreglo
+correspondiente; se preservan espacios internos y acentos.
 
 **Respuesta 201:**
 
@@ -1695,6 +1703,11 @@ Body: ninguno.
 
 **Respuesta 200:** listado CRUD con `collection: "agenda_events"`.
 
+`status` expresa el estado operativo del evento (`scheduled`, `completed` o
+`cancelled`). `attendance_reported` expresa por separado la asistencia que el
+paciente autorreportó; puede ser `true`, `false` o `null` (sin reporte). No debe
+interpretarse como verificación clínica ni administrativa.
+
 Errores: `401`, `403`, `500`.
 
 Android producción: **sí**.
@@ -1727,6 +1740,10 @@ necesita enviar `patient_uid`.
 
 Estados admitidos: `scheduled`, `completed`, `cancelled`.
 
+La creación siempre inicializa `attendance_reported`,
+`attendance_reported_at` y `attendance_reported_by` en `null`. Enviar cualquiera
+de esos campos durante la creación produce `422`.
+
 **Respuesta 201:** creación CRUD con `collection: "agenda_events"`.
 
 Errores: `401`, `403`, `404`, `422`, `500`.
@@ -1749,13 +1766,22 @@ Android producción: **sí**.
   "ends_at": "2026-07-25T20:00:00-06:00",
   "location": "Ubicación",
   "status": "completed",
+  "attendance_reported": true,
   "notes": "Notas"
 }
 ```
 
 Obligatorio: al menos un campo modificable.
 
-Opcionales: todos los campos mostrados.
+Opcionales: todos los campos mostrados. Solo el paciente propietario puede
+enviar `attendance_reported`; un supervisor recibe `403` si intenta hacerlo.
+Cuando se envía `true` o `false`, el servidor registra
+`attendance_reported_at` y el UID del paciente en `attendance_reported_by`.
+Enviar `null` retira el autorreporte y limpia ambos campos de trazabilidad.
+Android y supervisores pueden leer `attendance_reported` y
+`attendance_reported_at`, pero no pueden escribir los campos de trazabilidad.
+Actualizar asistencia no modifica `status`, y actualizar `status` no presume
+asistencia.
 
 **Respuesta 200:** actualización CRUD con `collection: "agenda_events"`.
 
