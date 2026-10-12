@@ -445,7 +445,7 @@ class FirestoreCrudController extends Controller
                     'max:80',
                     'required_if:relationship_category,other',
                 ],
-                'priority' => ['sometimes', 'integer', 'between:1,10'],
+                'priority' => ['sometimes', 'integer', 'between:1,5'],
                 'can_receive_alerts' => ['sometimes', 'boolean'],
                 'notes' => ['sometimes', 'string', 'max:1000'],
             ],

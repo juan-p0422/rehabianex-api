@@ -156,6 +156,32 @@ class ProfileFormValidationTest extends TestCase
         }
     }
 
+    public function test_support_contact_priority_uses_one_to_five_with_five_as_highest(): void
+    {
+        $controller = $this->controllerWithoutConstructor();
+
+        foreach ([1, 5] as $priority) {
+            $this->invoke($controller, 'validatePayload', [
+                'support-contacts',
+                ['priority' => $priority],
+                false,
+            ]);
+        }
+
+        foreach ([0, 6] as $priority) {
+            try {
+                $this->invoke($controller, 'validatePayload', [
+                    'support-contacts',
+                    ['priority' => $priority],
+                    false,
+                ]);
+                $this->fail("La prioridad {$priority} debía rechazarse.");
+            } catch (ValidationException $exception) {
+                $this->assertArrayHasKey('priority', $exception->errors());
+            }
+        }
+    }
+
     public function test_new_form_fields_remain_inside_owner_allowlists(): void
     {
         $access = (new ReflectionClass(FirestoreAccessService::class))->newInstanceWithoutConstructor();

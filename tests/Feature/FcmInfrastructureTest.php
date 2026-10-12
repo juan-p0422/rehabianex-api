@@ -366,6 +366,30 @@ class FcmInfrastructureTest extends TestCase
         }
     }
 
+    public function test_test_endpoint_is_unavailable_in_production_even_in_dry_run(): void
+    {
+        config([
+            'fcm.enabled' => true,
+            'fcm.dry_run' => true,
+        ]);
+        $this->app->detectEnvironment(fn (): string => 'production');
+
+        $messaging = $this->createMock(Messaging::class);
+        $messaging->expects($this->never())->method('send');
+        $request = Request::create('/api/notifications/test', 'POST');
+        $request->attributes->set('firebase_uid', 'synthetic-test-user');
+
+        try {
+            (new FcmTokenController($this->tokens))->test(
+                $request,
+                new FcmService($this->tokens, $messaging),
+            );
+            $this->fail('El endpoint de prueba debía quedar bloqueado en producción.');
+        } catch (HttpException $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
+    }
+
     public function test_delivery_to_test_user_uses_safe_minimal_payload_and_dedupe_keys(): void
     {
         config([

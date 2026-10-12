@@ -80,6 +80,10 @@ class FcmTokenController extends Controller
 
     public function test(Request $request, FcmService $fcm)
     {
+        if (! app()->environment(['local', 'testing', 'staging'])) {
+            abort(403, 'El endpoint de prueba solo está disponible en entornos de QA autorizados.');
+        }
+
         if ($request->all() !== []) {
             abort(422, 'El endpoint de prueba no acepta payload.');
         }

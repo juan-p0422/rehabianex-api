@@ -1689,6 +1689,19 @@ Body: ninguno.
 **Respuesta 200:** listado CRUD con
 `collection: "local_resources"`.
 
+Cada elemento puede incluir estos metadatos informativos y anulables:
+
+| Campo | Tipo | Significado |
+|---|---|---|
+| `source_name` | string o null | Nombre de la fuente consultada |
+| `source_url` | URL o null | Enlace de la fuente, cuando existe |
+| `reviewed_at` | fecha ISO 8601 o null | Fecha documentada de revisión informativa |
+
+La ausencia de un metadato no autoriza a inventarlo: Android muestra
+`No disponible`. `updated_at` es la actualización técnica del documento y no
+equivale a revisión, acreditación ni evaluación de calidad clínica. La última
+sincronización mostrada por Android proviene de su estado de caché local.
+
 Errores: `401`, `500`.
 
 Android producción: **sí**.
@@ -1841,7 +1854,10 @@ Android producción: **sí**.
 Obligatorios: `name`, `phone`.
 
 Opcionales: `relationship` heredado, `relationship_category`,
-`relationship_other`, `priority` de 1 a 10, `can_receive_alerts`, `notes`.
+`relationship_other`, `priority` de 1 a 5, `can_receive_alerts`, `notes`.
+En `priority`, 5 significa mayor prioridad y 1 menor prioridad. Los registros
+históricos con valores 6 a 10 siguen siendo legibles; actualizar otros campos
+no los reescribe, pero un nuevo envío de `priority` debe estar entre 1 y 5.
 Las categorías nuevas son `family`, `friend`, `partner`,
 `health_professional`, `support_peer`, `work_or_school` y `other`; esta última
 exige `relationship_other`.
