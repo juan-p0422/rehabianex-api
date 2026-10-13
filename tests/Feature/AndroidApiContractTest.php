@@ -23,6 +23,9 @@ class AndroidApiContractTest extends TestCase
             'logout' => ['POST', 'api/auth/logout'],
             'me' => ['GET', 'api/auth/me'],
             'sync verified email' => ['POST', 'api/auth/email/sync'],
+            'data control summary' => ['GET', 'api/data-control/summary'],
+            'data export' => ['GET', 'api/data-control/export'],
+            'account deletion request' => ['POST', 'api/data-control/account-deletion-requests'],
             'update patient' => ['PATCH', 'api/patients/{id}'],
             'show patient' => ['GET', 'api/patients/{id}'],
             'list patient notes' => ['GET', 'api/patients/{id}/notes'],
@@ -134,6 +137,25 @@ class AndroidApiContractTest extends TestCase
             'POST',
             'api/auth/email/sync',
             ['api', 'firebase.auth', 'throttle:10,1']
+        );
+    }
+
+    public function test_data_control_routes_are_authenticated_and_rate_limited(): void
+    {
+        $this->assertRouteUsesMiddleware(
+            'GET',
+            'api/data-control/summary',
+            ['api', 'firebase.auth', 'throttle:20,1']
+        );
+        $this->assertRouteUsesMiddleware(
+            'GET',
+            'api/data-control/export',
+            ['api', 'firebase.auth', 'throttle:3,1']
+        );
+        $this->assertRouteUsesMiddleware(
+            'POST',
+            'api/data-control/account-deletion-requests',
+            ['api', 'firebase.auth', 'throttle:3,1']
         );
     }
 

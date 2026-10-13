@@ -2662,3 +2662,24 @@ cifrada con vigencia corta. Son ayudas de navegación, no estado autoritativo.
 Acciones administrativas, solicitudes, intervenciones y cualquier dato de
 terceros son siempre online. Datos de pacientes vistos por supervisor nunca se
 persisten en Room.
+
+## Control de datos (Etapa 8)
+
+El contrato completo y su inventario están en
+`docs/STAGE8_DATA_CONTROL_CONTRACT.md`.
+
+- `GET /data-control/summary`: inventario, campos rectificables, acciones y
+  límites de retención; `20` solicitudes por minuto.
+- `GET /data-control/export`: adjunto JSON UTF-8 del titular, privado y no
+  cacheable; `3` solicitudes por minuto.
+- `POST /data-control/account-deletion-requests`: requiere ID token con
+  `auth_time` no mayor a 300 segundos, confirmación exacta y aceptación del
+  aviso de retención; `3` solicitudes por minuto.
+
+La respuesta 202 de eliminación significa que acceso y sincronización quedaron
+bloqueados y que existe una solicitud para revisión manual; no certifica purga
+física de respaldos o proveedores. Después de recibirla Android cancela trabajo
+pendiente del UID, purga sus datos locales y cierra la sesión. Los perfiles y el
+correo no usan cola offline. Una cuenta marcada en eliminación recibe `423` en
+accesos y sincronizaciones; tokens inválidos o una identidad Firebase ya
+deshabilitada reciben `401`.

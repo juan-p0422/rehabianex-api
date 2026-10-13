@@ -77,12 +77,26 @@ class AuthenticateFirebase
                 return ApiErrorResponse::make('La cuenta no tiene un perfil activo.', 403);
             }
 
+            $profileData = $profile->data();
+
+            if (in_array(
+                $profileData['data_deletion_status'] ?? null,
+                ['pending_manual_review', 'processing', 'completed'],
+                true
+            )) {
+                return ApiErrorResponse::make(
+                    'La cuenta tiene una solicitud de eliminación en curso y no admite nuevos accesos ni sincronizaciones.',
+                    423
+                );
+            }
+
             $request->attributes->set('firebase_uid', $uid);
             $request->attributes->set('firebase_role', $role);
             $request->attributes->set('firebase_user', $user);
-            $request->attributes->set('firebase_profile', $profile->data());
+            $request->attributes->set('firebase_profile', $profileData);
             $request->attributes->set('firebase_token_hash', $tokenHash);
             $request->attributes->set('firebase_token_expires_at', $verifiedToken->claims()->get('exp'));
+            $request->attributes->set('firebase_authenticated_at', $authenticatedAtTimestamp);
 
             return $next($request);
         } catch (Throwable $e) {

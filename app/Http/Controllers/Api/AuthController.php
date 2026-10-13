@@ -129,7 +129,6 @@ class AuthController extends Controller
                     $this->auth->deleteUser($user->uid);
                 } catch (Throwable $cleanupError) {
                     Log::error('No se pudo revertir un registro sin sesion inicial.', [
-                        'uid' => $user->uid,
                         'exception' => get_class($cleanupError),
                     ]);
                 }
@@ -206,6 +205,11 @@ class AuthController extends Controller
         $normalizedTokens = $this->authTokens($tokens);
         $role = $user ? $this->roleForUser($user, 'patient') : 'patient';
         $profile = $uid ? $this->profileForUid($uid, $role) : null;
+
+        if ($this->deletionBlocksAccess($profile)) {
+            return $this->deletionBlockedResponse();
+        }
+
         $normalizedProfile = $this->stableProfile($profile, $role);
 
         return response()->json([
@@ -258,6 +262,13 @@ class AuthController extends Controller
         }
 
         $tokens = $response->json();
+        $uid = (string) ($tokens['user_id'] ?? '');
+
+        if ($uid !== '') {
+            if ($this->deletionBlocksAccess($this->profileForUid($uid))) {
+                return $this->deletionBlockedResponse();
+            }
+        }
 
         return response()->json([
             'ok' => true,
@@ -416,6 +427,11 @@ class AuthController extends Controller
             $uid = $verified->claims()->get('sub');
             $user = $this->auth->getUser($uid);
             $role = $this->roleForUser($user, 'patient');
+            $currentProfile = $this->profileForUid($uid, $role);
+
+            if ($this->deletionBlocksAccess($currentProfile)) {
+                return $this->deletionBlockedResponse();
+            }
 
             if (! isset($user->customClaims['role'])) {
                 $this->auth->setCustomUserClaims($uid, ['role' => 'patient']);
@@ -425,6 +441,10 @@ class AuthController extends Controller
                 $this->syncProviderProfile($user, $role, 'firebase'),
                 $role
             );
+
+            if ($this->deletionBlocksAccess($profile)) {
+                return $this->deletionBlockedResponse();
+            }
 
             return response()->json([
                 'ok' => true,
@@ -452,6 +472,11 @@ class AuthController extends Controller
         $uid = $verified->claims()->get('sub');
         $user = $this->auth->getUser($uid);
         $role = $this->roleForUser($user, $defaultRole);
+        $currentProfile = $this->profileForUid($uid, $role);
+
+        if ($this->deletionBlocksAccess($currentProfile)) {
+            return $this->deletionBlockedResponse();
+        }
 
         if (! isset($user->customClaims['role'])) {
             $this->auth->setCustomUserClaims($uid, ['role' => 'patient']);
@@ -461,6 +486,10 @@ class AuthController extends Controller
             $this->syncProviderProfile($user, $role, 'google.com'),
             $role
         );
+
+        if ($this->deletionBlocksAccess($profile)) {
+            return $this->deletionBlockedResponse();
+        }
         $stableTokens = $this->authTokens($tokens);
 
         return response()->json([
@@ -540,6 +569,23 @@ class AuthController extends Controller
         }
 
         return null;
+    }
+
+    private function deletionBlocksAccess(?array $profile): bool
+    {
+        return in_array(
+            $profile['data_deletion_status'] ?? null,
+            ['pending_manual_review', 'processing', 'completed'],
+            true
+        );
+    }
+
+    private function deletionBlockedResponse()
+    {
+        return ApiErrorResponse::make(
+            'La cuenta tiene una solicitud de eliminación en curso y no admite nuevos accesos ni sincronizaciones.',
+            423
+        );
     }
 
     private function linkedSupervisorSummary(array $patient): ?array

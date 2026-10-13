@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AdminSupervisorController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardSummaryController;
+use App\Http\Controllers\Api\DataControlController;
 use App\Http\Controllers\Api\FcmDemoController;
 use App\Http\Controllers\Api\FcmTokenController;
 use App\Http\Controllers\Api\FirestoreCrudController;
@@ -33,6 +34,13 @@ Route::middleware('firebase.auth')->group(function () {
     Route::post('/auth/email/sync', [AuthController::class, 'syncEmail'])
         ->middleware('throttle:10,1');
     Route::post('/auth/logout', [AuthController::class, 'logout']);
+
+    Route::get('/data-control/summary', [DataControlController::class, 'summary'])
+        ->middleware('throttle:20,1');
+    Route::get('/data-control/export', [DataControlController::class, 'export'])
+        ->middleware('throttle:3,1');
+    Route::post('/data-control/account-deletion-requests', [DataControlController::class, 'requestAccountDeletion'])
+        ->middleware('throttle:3,1');
 
     Route::post('/notifications/fcm-token', [FcmTokenController::class, 'register'])
         ->middleware('throttle:10,1');
