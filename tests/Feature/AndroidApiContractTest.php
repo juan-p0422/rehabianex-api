@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
@@ -99,7 +101,7 @@ class AndroidApiContractTest extends TestCase
         $this->assertRouteUsesMiddleware(
             'POST',
             'api/ai/supervisor-chat',
-            ['api', 'firebase.auth', 'throttle:10,1']
+            ['api', 'firebase.auth', 'throttle:ai-chat']
         );
 
         $this->assertRouteUsesMiddleware(
@@ -107,6 +109,23 @@ class AndroidApiContractTest extends TestCase
             'api/ai/supervisor-chat/eligibility',
             ['api', 'firebase.auth', 'throttle:30,1']
         );
+    }
+
+    public function test_ai_chat_rate_limit_isolated_by_authenticated_uid(): void
+    {
+        $limiter = RateLimiter::limiter('ai-chat');
+        $firstRequest = Request::create('/api/ai/supervisor-chat', 'POST');
+        $firstRequest->attributes->set('firebase_uid', 'supervisor-one');
+        $secondRequest = Request::create('/api/ai/supervisor-chat', 'POST');
+        $secondRequest->attributes->set('firebase_uid', 'supervisor-two');
+
+        $first = $limiter($firstRequest);
+        $second = $limiter($secondRequest);
+
+        $this->assertSame('firebase:supervisor-one', $first->key);
+        $this->assertSame('firebase:supervisor-two', $second->key);
+        $this->assertSame(10, $first->maxAttempts);
+        $this->assertSame(60, $first->decaySeconds);
     }
 
     public function test_email_sync_is_authenticated_and_rate_limited(): void

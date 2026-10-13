@@ -130,7 +130,7 @@ class SupervisorAISecurityTest extends TestCase
     {
         config()->set('ai.api_key', null);
 
-        $result = (new AIService())->askSupervisorAssistant('Pregunta', []);
+        $result = (new AIService)->askSupervisorAssistant('Pregunta', []);
 
         $this->assertSame([
             'ok' => false,
@@ -154,22 +154,22 @@ class SupervisorAISecurityTest extends TestCase
 
         $this->assertSame(
             'provider_rate_limited',
-            (new AIService())->askSupervisorAssistant('Pregunta', [])['error_code']
+            (new AIService)->askSupervisorAssistant('Pregunta', [])['error_code']
         );
 
         $this->assertSame(
             'provider_timeout',
-            (new AIService())->askSupervisorAssistant('Pregunta', [])['error_code']
+            (new AIService)->askSupervisorAssistant('Pregunta', [])['error_code']
         );
 
         $this->assertSame(
             'provider_unavailable',
-            (new AIService())->askSupervisorAssistant('Pregunta', [])['error_code']
+            (new AIService)->askSupervisorAssistant('Pregunta', [])['error_code']
         );
 
         $this->assertSame(
             'empty_response',
-            (new AIService())->askSupervisorAssistant('Pregunta', [])['error_code']
+            (new AIService)->askSupervisorAssistant('Pregunta', [])['error_code']
         );
     }
 
@@ -194,7 +194,7 @@ class SupervisorAISecurityTest extends TestCase
             ]],
         ];
 
-        $result = (new AIService())->askSupervisorAssistant('Resumen', $context);
+        $result = (new AIService)->askSupervisorAssistant('Resumen', $context);
 
         $this->assertTrue($result['ok']);
         $this->assertSame([
@@ -212,6 +212,64 @@ class SupervisorAISecurityTest extends TestCase
                 && ! str_contains($serialized, 'email')
                 && ! str_contains($serialized, 'phone');
         });
+    }
+
+    public function test_unsafe_provider_answer_is_rejected_after_generation(): void
+    {
+        $this->configureProvider();
+        Http::fake(['*' => Http::response([
+            'choices' => [[
+                'message' => ['content' => 'El diagnóstico es depresión y toma 20 mg diariamente.'],
+            ]],
+        ])]);
+
+        $result = (new AIService)->askSupervisorAssistant('Resume los registros', []);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('unsafe_provider_response', $result['error_code']);
+        $this->assertFalse($result['retryable']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_context_reports_calendar_period_and_data_limits(): void
+    {
+        config()->set('ai.context_days', 7);
+        config()->set('ai.context_timezone', 'America/Mexico_City');
+        config()->set('ai.context_max_notes', 20);
+
+        $context = $this->controllerMethod('buildAIContext', ['supervisor-1', [], []]);
+
+        $this->assertSame('Últimos 7 días naturales', $context['period']['label']);
+        $this->assertSame('America/Mexico_City', $context['period']['timezone']);
+        $this->assertCount(3, $context['data_limits']);
+        $this->assertStringContainsString('20 registros', $context['data_limits'][0]);
+        $this->assertStringContainsString('no se interpretan como recaída', $context['data_limits'][1]);
+    }
+
+    public function test_context_period_excludes_old_or_invalid_dates(): void
+    {
+        $period = $this->controllerMethod('contextPeriod', []);
+
+        $this->assertTrue($this->controllerMethod('isWithinContextPeriod', [
+            now('America/Mexico_City')->toIso8601String(),
+            $period['start_at'],
+            $period['end_at'],
+        ]));
+        $this->assertFalse($this->controllerMethod('isWithinContextPeriod', [
+            now('America/Mexico_City')->subDays(8)->toIso8601String(),
+            $period['start_at'],
+            $period['end_at'],
+        ]));
+        $this->assertFalse($this->controllerMethod('isWithinContextPeriod', [
+            now('America/Mexico_City')->addDay()->toIso8601String(),
+            $period['start_at'],
+            $period['end_at'],
+        ]));
+        $this->assertFalse($this->controllerMethod('isWithinContextPeriod', [
+            'fecha-invalida',
+            $period['start_at'],
+            $period['end_at'],
+        ]));
     }
 
     private function controllerMethod(string $method, array $arguments): mixed

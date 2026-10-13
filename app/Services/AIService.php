@@ -19,8 +19,8 @@ class AIService
         }
 
         try {
-            $response = Http::connectTimeout(10)
-                ->timeout(45)
+            $response = Http::connectTimeout(max(1, (int) config('ai.connect_timeout_seconds', 10)))
+                ->timeout(max(1, (int) config('ai.timeout_seconds', 45)))
                 ->withHeaders([
                     'Authorization' => 'Bearer '.$apiKey,
                     'Content-Type' => 'application/json',
@@ -40,7 +40,7 @@ class AIService
                         ],
                     ],
                     'temperature' => 0.2,
-                    'max_tokens' => 700,
+                    'max_tokens' => max(1, (int) config('ai.max_output_tokens', 700)),
                 ]);
 
             if ($response->status() === 429) {
@@ -59,6 +59,10 @@ class AIService
 
             if ($answer === '') {
                 return $this->failure('empty_response', true);
+            }
+
+            if ($this->answerViolatesClinicalSafety($answer)) {
+                return $this->failure('unsafe_provider_response', false);
             }
 
             return [
@@ -136,5 +140,23 @@ PROMPT;
             'completion_tokens',
             'total_tokens',
         ]));
+    }
+
+    private function answerViolatesClinicalSafety(string $answer): bool
+    {
+        $patterns = [
+            '/\bdiagn[oó]stico\s*(?:es|:)\b/iu',
+            '/\b(?:receta|prescripci[oó]n)\s*(?:es|:)\b/iu',
+            '/\b(?:toma|administra|aumenta|reduce|suspende)\s+\d+(?:[.,]\d+)?\s*(?:mg|ml|tabletas?|c[aá]psulas?)\b/iu',
+            '/\bdebe(?:s|n)?\s+(?:iniciar|suspender|cambiar)\s+(?:el\s+)?(?:medicamento|tratamiento|dosis)\b/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $answer) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

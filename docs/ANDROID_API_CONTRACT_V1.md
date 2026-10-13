@@ -2156,7 +2156,9 @@ contrato completo, tipos, rutas, privacidad y deduplicación están definidos en
 
 **Método y ruta:** `POST /ai/supervisor-chat`
 
-**Acceso:** supervisor. Límite: 10 solicitudes por minuto.
+**Acceso:** supervisor autorizado. Límite: 10 solicitudes por minuto por UID
+Firebase autenticado. Las llamadas facturables al proveedor tienen además una
+cuota configurable de 50 por ventana móvil de 24 horas y por supervisor.
 
 **Body:**
 
@@ -2168,7 +2170,9 @@ contrato completo, tipos, rutas, privacidad y deduplicación están definidos en
 }
 ```
 
-Obligatorios: `supervisor_uid`, que debe coincidir con la sesión, y `question`.
+Obligatorios: `supervisor_uid`, que debe coincidir con la sesión, y `question`,
+texto no vacío de hasta 800 caracteres. Se conservan espacios, acentos y demás
+texto legítimo.
 
 Opcional: `mode`, con `ai` o `local`. El valor predeterminado es `ai`.
 
@@ -2185,7 +2189,23 @@ Opcional: `mode`, con `ai` o `local`. El valor predeterminado es `ai`.
   "usage": null,
   "context": {
     "authorized_patients_count": 1,
-    "notes_count": 5
+    "notes_count": 5,
+    "period": {
+      "start_date": "2026-10-06",
+      "end_date": "2026-10-12",
+      "timezone": "America/Mexico_City",
+      "label": "Últimos 7 días naturales"
+    },
+    "data_limits": [
+      "Se incluyen como máximo 20 registros autorreportados del periodo indicado.",
+      "Los datos faltantes no se interpretan como recaída ni como estado clínico."
+    ]
+  },
+  "quota": {
+    "limit": 50,
+    "remaining": 49,
+    "reset_at": "2026-10-13T12:00:00-06:00",
+    "window": "rolling_24_hours"
   },
   "stored": false,
   "session_id": null,
@@ -2194,7 +2214,20 @@ Opcional: `mode`, con `ai` o `local`. El valor predeterminado es `ai`.
 ```
 
 Si el proveedor falla, el endpoint conserva código `200` y devuelve
-`mode: "fallback_local"`. `model` y `usage` pueden estar ausentes.
+`mode: "fallback_local"`. `model` y `usage` pueden estar ausentes. `usage`
+representa los tokens informados por el proveedor; `quota` representa el
+consumo permitido por RehabiAnex y ambos conceptos no son intercambiables.
+
+`mode: "local"`, las respuestas locales por límite clínico y las validaciones
+no consumen cuota del proveedor. No hay reintentos automáticos de llamadas
+facturables. Una solicitud de diagnóstico, prescripción, dosis o decisión de
+tratamiento recibe una respuesta local con
+`safety_intervention: "clinical_boundary"`.
+
+Al agotar la cuota diaria se devuelve `429` con `retry_after_seconds`, `quota`
+y encabezado `Retry-After`. El limitador de 10 por minuto también devuelve
+`429`. Android debe impedir doble envío, respetar `Retry-After` y no reintentar
+automáticamente una operación cuyo resultado sea incierto.
 
 Errores: `401`, `403`, `422`, `429`, `500`.
 
@@ -2467,7 +2500,8 @@ configuracion remota.
 ### Auditoria de privacidad de POST /ai/supervisor-chat
 
 La ruta exige `firebase.auth`, `role=supervisor`, `authorized=true`,
-`verified=true`, `status=active` y `throttle:10,1`.
+`verified=true`, `status=active` y `throttle:ai-chat`, resuelto por UID Firebase
+autenticado y no como una cuota compartida por dirección IP.
 
 Antes de llamar al proveedor se filtran pacientes por relacion aceptada,
 `wants_supervision=true`, consentimiento activo, `explicit_consent=true`,
@@ -2505,6 +2539,11 @@ app
 privacy_rule
 authorized_patients_count
 notes_count
+period.start_date
+period.end_date
+period.timezone
+period.label
+data_limits[]
 patients[].patient_ref
 patients[].recovery_days
 recent_notes[].patient_ref
@@ -2531,6 +2570,10 @@ contexto, respuesta, token o API key.
 Timeout, rate limit del proveedor, configuracion ausente, proveedor no
 disponible y respuesta vacia producen una respuesta local segura con HTTP 200,
 `mode=fallback_local` y un `provider_error.code` estable sin secretos.
+Una respuesta del proveedor que contenga instrucciones clínicas prohibidas se
+descarta igualmente con `provider_error.code=unsafe_provider_response`. El
+backend configura timeout de conexión y timeout total y no reintenta llamadas
+facturables.
 
 ### Proyeccion estable de nombre de paciente
 

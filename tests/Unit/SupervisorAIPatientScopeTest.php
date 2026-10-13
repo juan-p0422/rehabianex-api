@@ -7,6 +7,7 @@ use App\Services\AIService;
 use App\Services\FirebaseService;
 use App\Services\FirestoreAccessService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Mockery;
 use ReflectionClass;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -233,7 +234,117 @@ class SupervisorAIPatientScopeTest extends TestCase
         $this->assertSame('disabled', $payload['history_persistence']);
     }
 
-    private function controllerWithNoAuthorizedPatients(): array
+    public function test_question_longer_than_contract_limit_is_rejected(): void
+    {
+        $database = Mockery::mock();
+        $firebase = Mockery::mock(FirebaseService::class);
+        $firebase->shouldReceive('db')->once()->andReturn($database);
+        $access = Mockery::mock(FirestoreAccessService::class);
+        $access->shouldReceive('role')->once()->andReturn('supervisor');
+        $controller = new SupervisorAIController($firebase, Mockery::mock(AIService::class), $access);
+
+        $response = $controller->chat(Request::create('/api/ai/supervisor-chat', 'POST', [
+            'supervisor_uid' => 'supervisor-1',
+            'question' => str_repeat('á', 801),
+            'mode' => 'ai',
+        ]));
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertArrayHasKey('question', $response->getData(true)['errors']);
+    }
+
+    public function test_clinical_request_is_answered_locally_without_consuming_provider_quota(): void
+    {
+        config()->set('ai.provider_calls_per_day', 1);
+        RateLimiter::clear('ai-provider-daily:supervisor-1');
+        [$controller, $ai] = $this->controllerWithNoAuthorizedPatients();
+        $ai->shouldNotReceive('askSupervisorAssistant');
+
+        $response = $controller->chat(Request::create('/api/ai/supervisor-chat', 'POST', [
+            'supervisor_uid' => 'supervisor-1',
+            'question' => 'Diagnostica al paciente y prescribe una dosis.',
+            'mode' => 'ai',
+        ]));
+        $payload = $response->getData(true);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('local', $payload['mode']);
+        $this->assertSame('clinical_boundary', $payload['safety_intervention']);
+        $this->assertSame(1, $payload['quota']['remaining']);
+    }
+
+    public function test_provider_quota_is_per_supervisor_and_blocks_only_billable_calls(): void
+    {
+        config()->set('ai.provider_calls_per_day', 1);
+        RateLimiter::clear('ai-provider-daily:supervisor-1');
+        RateLimiter::clear('ai-provider-daily:supervisor-2');
+
+        [$firstController, $firstAi] = $this->controllerWithNoAuthorizedPatients();
+        $firstAi->shouldReceive('askSupervisorAssistant')->once()->andReturn([
+            'ok' => true,
+            'answer' => 'Respuesta segura',
+            'model' => 'test-model',
+            'usage' => null,
+        ]);
+        $first = $firstController->chat(Request::create('/api/ai/supervisor-chat', 'POST', [
+            'supervisor_uid' => 'supervisor-1',
+            'question' => 'Resume los registros',
+            'mode' => 'ai',
+        ]));
+
+        [$secondController, $secondAi] = $this->controllerWithNoAuthorizedPatients();
+        $secondAi->shouldNotReceive('askSupervisorAssistant');
+        $second = $secondController->chat(Request::create('/api/ai/supervisor-chat', 'POST', [
+            'supervisor_uid' => 'supervisor-1',
+            'question' => 'Otra consulta',
+            'mode' => 'ai',
+        ]));
+
+        [$otherController, $otherAi] = $this->controllerWithNoAuthorizedPatients('supervisor-2');
+        $otherAi->shouldReceive('askSupervisorAssistant')->once()->andReturn([
+            'ok' => true,
+            'answer' => 'Respuesta independiente',
+            'model' => 'test-model',
+            'usage' => null,
+        ]);
+        $other = $otherController->chat(Request::create('/api/ai/supervisor-chat', 'POST', [
+            'supervisor_uid' => 'supervisor-2',
+            'question' => 'Consulta independiente',
+            'mode' => 'ai',
+        ]));
+
+        $this->assertSame(200, $first->getStatusCode());
+        $this->assertSame(0, $first->getData(true)['quota']['remaining']);
+        $this->assertSame(429, $second->getStatusCode());
+        $this->assertSame(0, $second->getData(true)['quota']['remaining']);
+        $this->assertGreaterThan(0, $second->getData(true)['retry_after_seconds']);
+        $this->assertSame(200, $other->getStatusCode());
+    }
+
+    public function test_missing_provider_configuration_does_not_consume_quota(): void
+    {
+        config()->set('ai.provider_calls_per_day', 1);
+        RateLimiter::clear('ai-provider-daily:supervisor-unconfigured');
+        [$controller, $ai] = $this->controllerWithNoAuthorizedPatients('supervisor-unconfigured');
+        $ai->shouldReceive('askSupervisorAssistant')->once()->andReturn([
+            'ok' => false,
+            'answer' => null,
+            'error_code' => 'configuration_missing',
+            'retryable' => false,
+        ]);
+
+        $response = $controller->chat(Request::create('/api/ai/supervisor-chat', 'POST', [
+            'supervisor_uid' => 'supervisor-unconfigured',
+            'question' => 'Resume los registros',
+            'mode' => 'ai',
+        ]));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('fallback_local', $response->getData(true)['mode']);
+        $this->assertSame(1, $response->getData(true)['quota']['remaining']);
+    }
+
+    private function controllerWithNoAuthorizedPatients(string $supervisorUid = 'supervisor-1'): array
     {
         $patients = Mockery::mock();
         $patients->shouldReceive('where')->twice()->andReturnSelf();
@@ -244,8 +355,8 @@ class SupervisorAIPatientScopeTest extends TestCase
         $firebase->shouldReceive('db')->once()->andReturn($database);
         $access = Mockery::mock(FirestoreAccessService::class);
         $access->shouldReceive('role')->once()->andReturn('supervisor');
-        $access->shouldReceive('uid')->once()->andReturn('supervisor-1');
-        $access->shouldReceive('assertAuthorizedSupervisor')->once()->with('supervisor-1');
+        $access->shouldReceive('uid')->once()->andReturn($supervisorUid);
+        $access->shouldReceive('assertAuthorizedSupervisor')->once()->with($supervisorUid);
         $ai = Mockery::mock(AIService::class);
 
         return [new SupervisorAIController($firebase, $ai, $access), $ai];

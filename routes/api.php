@@ -58,7 +58,7 @@ Route::middleware('firebase.auth')->group(function () {
     Route::patch('/supervision-requests/{id}/respond', [SupervisionController::class, 'respond']);
 
     Route::post('/ai/supervisor-chat', [SupervisorAIController::class, 'chat'])
-        ->middleware('throttle:10,1');
+        ->middleware('throttle:ai-chat');
     Route::get('/ai/supervisor-chat/eligibility', [SupervisorAIController::class, 'eligibility'])
         ->middleware('throttle:30,1');
 

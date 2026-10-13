@@ -30,5 +30,12 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(max(1, (int) config('fcm.demo.rate_limit_per_minute', 30)))
                 ->by($uid !== '' ? 'firebase:'.$uid : 'unauthenticated');
         });
+
+        RateLimiter::for('ai-chat', function (Request $request): Limit {
+            $uid = trim((string) $request->attributes->get('firebase_uid'));
+
+            return Limit::perMinute(max(1, (int) config('ai.rate_limit_per_minute', 10)))
+                ->by($uid !== '' ? 'firebase:'.$uid : 'unauthenticated');
+        });
     }
 }

@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiErrorResponse;
+use App\Rules\NonBlankText;
 use App\Services\AIService;
 use App\Services\FirebaseService;
 use App\Services\FirestoreAccessService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
 
@@ -34,7 +36,12 @@ class SupervisorAIController extends Controller
 
         $validator = Validator::make($request->all(), [
             'supervisor_uid' => ['required', 'string', 'max:128'],
-            'question' => ['required', 'string', 'max:3000'],
+            'question' => [
+                'required',
+                'string',
+                new NonBlankText,
+                'max:'.max(1, (int) config('ai.question_max_chars', 800)),
+            ],
             'mode' => ['nullable', 'in:ai,local'],
         ]);
 
@@ -61,10 +68,13 @@ class SupervisorAIController extends Controller
         $question = $this->redactPatientIdentifiers($question, $patients);
         $question = $this->sanitizeExternalQuestion($question);
         $patientUids = array_column($patients, 'uid');
+        $period = $this->contextPeriod();
 
-        $notes = $this->getNotesForPatients($patientUids);
+        $notes = $this->getNotesForPatients($patientUids, $period);
 
-        $context = $this->buildAIContext($supervisorUid, $patients, $notes);
+        $context = $this->buildAIContext($supervisorUid, $patients, $notes, $period);
+        $publicContext = $this->publicContext($context);
+        $quota = $this->providerQuota($supervisorUid);
 
         if ($mode === 'local') {
             $answer = $this->generateSafeLocalAnswer(strtolower($question), $context);
@@ -75,17 +85,50 @@ class SupervisorAIController extends Controller
                 'supervisor_uid' => $supervisorUid,
                 'question' => $question,
                 'answer' => $answer,
-                'context' => [
-                    'authorized_patients_count' => count($patients),
-                    'notes_count' => count($notes),
-                ],
+                'context' => $publicContext,
+                'quota' => $quota,
                 ...$this->disabledHistoryState(),
             ]);
         }
 
+        if (($safetyAnswer = $this->clinicalSafetyAnswer($question)) !== null) {
+            return response()->json([
+                'ok' => true,
+                'mode' => 'local',
+                'message' => 'La solicitud se respondió localmente por seguridad clínica.',
+                'supervisor_uid' => $supervisorUid,
+                'question' => $question,
+                'answer' => $safetyAnswer,
+                'context' => $publicContext,
+                'quota' => $quota,
+                'safety_intervention' => 'clinical_boundary',
+                ...$this->disabledHistoryState(),
+            ]);
+        }
+
+        if ($quota['remaining'] <= 0) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Se alcanzó el límite diario de consultas al proveedor de IA.',
+                'errors' => (object) [],
+                'retry_after_seconds' => $this->providerQuotaRetryAfter($supervisorUid),
+                'quota' => $quota,
+            ], 429, [
+                'Retry-After' => (string) $this->providerQuotaRetryAfter($supervisorUid),
+            ]);
+        }
+
+        RateLimiter::hit($this->providerQuotaKey($supervisorUid), 86400);
+        $quota = $this->providerQuota($supervisorUid);
+
         $aiResponse = $this->ai->askSupervisorAssistant($question, $context);
 
         if (! $aiResponse['ok']) {
+            if (($aiResponse['error_code'] ?? null) === 'configuration_missing') {
+                RateLimiter::decrement($this->providerQuotaKey($supervisorUid));
+                $quota = $this->providerQuota($supervisorUid);
+            }
+
             $fallbackAnswer = $this->generateSafeLocalAnswer(strtolower($question), $context);
 
             return response()->json([
@@ -99,10 +142,8 @@ class SupervisorAIController extends Controller
                 'supervisor_uid' => $supervisorUid,
                 'question' => $question,
                 'answer' => $fallbackAnswer,
-                'context' => [
-                    'authorized_patients_count' => count($patients),
-                    'notes_count' => count($notes),
-                ],
+                'context' => $publicContext,
+                'quota' => $quota,
                 ...$this->disabledHistoryState(),
             ]);
         }
@@ -115,10 +156,8 @@ class SupervisorAIController extends Controller
             'answer' => $aiResponse['answer'],
             'model' => $aiResponse['model'] ?? null,
             'usage' => $aiResponse['usage'] ?? null,
-            'context' => [
-                'authorized_patients_count' => count($patients),
-                'notes_count' => count($notes),
-            ],
+            'context' => $publicContext,
+            'quota' => $quota,
             ...$this->disabledHistoryState(),
         ]);
     }
@@ -180,7 +219,7 @@ class SupervisorAIController extends Controller
         return $patients;
     }
 
-    private function getNotesForPatients($patientUids)
+    private function getNotesForPatients($patientUids, array $period)
     {
         $notes = [];
 
@@ -192,7 +231,15 @@ class SupervisorAIController extends Controller
 
             foreach ($documents as $document) {
                 if ($document->exists()) {
-                    $notes[] = $document->data();
+                    $note = $document->data();
+
+                    if ($this->isWithinContextPeriod(
+                        $note['created_at'] ?? null,
+                        $period['start_at'],
+                        $period['end_at']
+                    )) {
+                        $notes[] = $note;
+                    }
                 }
             }
         }
@@ -201,11 +248,12 @@ class SupervisorAIController extends Controller
             return strcmp($b['created_at'] ?? '', $a['created_at'] ?? '');
         });
 
-        return array_slice($notes, 0, 20);
+        return array_slice($notes, 0, max(1, (int) config('ai.context_max_notes', 20)));
     }
 
-    private function buildAIContext($supervisorUid, $patients, $notes)
+    private function buildAIContext($supervisorUid, $patients, $notes, ?array $period = null)
     {
+        $period ??= $this->contextPeriod();
         $patientsByUid = [];
         $patientNumber = 0;
 
@@ -245,6 +293,8 @@ class SupervisorAIController extends Controller
             'privacy_rule' => 'Contexto minimizado de pacientes vinculados con consentimiento activo para ai_chat_summary.',
             'authorized_patients_count' => count($patientsByUid),
             'notes_count' => count($cleanNotes),
+            'period' => $this->publicPeriod($period),
+            'data_limits' => $this->contextDataLimits(),
             'patients' => array_values($patientsByUid),
             'recent_notes' => $cleanNotes,
         ];
@@ -340,6 +390,11 @@ class SupervisorAIController extends Controller
             return 'No hay pacientes vinculados con consentimiento activo para el resumen de IA.';
         }
 
+        if ($notes === []) {
+            return 'No hay registros autorreportados disponibles en el periodo consultado. '
+                .'La ausencia de datos no permite inferir recaída, diagnóstico ni estado clínico.';
+        }
+
         $highAnxiety = count(array_filter(
             $notes,
             fn (array $note): bool => (int) ($note['anxiety_level'] ?? 0) >= 7
@@ -361,6 +416,120 @@ class SupervisorAIController extends Controller
             .count($notes)." registros recientes, {$highAnxiety} con ansiedad alta, "
             ."{$highCraving} con craving alto y {$highRisk} con señales de riesgo alto. "
             .'Esto no es diagnóstico, prescripción ni terapia y no sustituye atención profesional.';
+    }
+
+    private function contextPeriod(): array
+    {
+        $timezone = (string) config('ai.context_timezone', 'America/Mexico_City');
+        $days = max(1, (int) config('ai.context_days', 7));
+        $end = now($timezone);
+        $start = $end->copy()->startOfDay()->subDays($days - 1);
+
+        return [
+            'start_at' => $start,
+            'end_at' => $end,
+            'timezone' => $timezone,
+            'days' => $days,
+        ];
+    }
+
+    private function publicPeriod(array $period): array
+    {
+        return [
+            'start_date' => $period['start_at']->toDateString(),
+            'end_date' => $period['end_at']->toDateString(),
+            'timezone' => $period['timezone'],
+            'label' => sprintf('Últimos %d días naturales', $period['days']),
+        ];
+    }
+
+    private function contextDataLimits(): array
+    {
+        return [
+            sprintf(
+                'Se incluyen como máximo %d registros autorreportados del periodo indicado.',
+                max(1, (int) config('ai.context_max_notes', 20))
+            ),
+            'Los datos faltantes no se interpretan como recaída ni como estado clínico.',
+            'Las referencias de pacientes son efímeras y no equivalen a anonimización garantizada.',
+        ];
+    }
+
+    private function publicContext(array $context): array
+    {
+        return [
+            'authorized_patients_count' => (int) ($context['authorized_patients_count'] ?? 0),
+            'notes_count' => (int) ($context['notes_count'] ?? 0),
+            'period' => $context['period'] ?? null,
+            'data_limits' => $context['data_limits'] ?? [],
+        ];
+    }
+
+    private function isWithinContextPeriod(
+        mixed $date,
+        Carbon $periodStart,
+        ?Carbon $periodEnd = null
+    ): bool {
+        if (! is_string($date) || trim($date) === '') {
+            return false;
+        }
+
+        try {
+            $dateTime = Carbon::parse($date);
+            $end = ($periodEnd ?? now($periodStart->timezone))->copy()->utc();
+
+            return $dateTime->betweenIncluded($periodStart->copy()->utc(), $end);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function clinicalSafetyAnswer(string $question): ?string
+    {
+        $diagnosis = preg_match(
+            '/\b(?:diagn[oó]stic\w*|qu[eé]\s+(?:tiene|padece)|determina(?:r)?\s+(?:la\s+)?enfermedad)\b/iu',
+            $question
+        ) === 1;
+        $prescription = preg_match(
+            '/\b(?:recet\w*|prescrib\w*|medicament\w*|f[aá]rmac\w*|dosis|dosificaci[oó]n|\d+(?:[.,]\d+)?\s*(?:mg|ml))\b/iu',
+            $question
+        ) === 1;
+        $clinicalDecision = preg_match(
+            '/\b(?:iniciar|suspender|cambiar|indicar|decidir)\b.{0,40}\b(?:tratamiento|terapia|medicamento|dosis)\b/iu',
+            $question
+        ) === 1;
+
+        if (! $diagnosis && ! $prescription && ! $clinicalDecision) {
+            return null;
+        }
+
+        return 'No puedo emitir diagnósticos, prescribir medicamentos, indicar dosis ni tomar decisiones clínicas. '
+            .'Puedo resumir únicamente los registros autorreportados autorizados. '
+            .'Para una valoración o decisión terapéutica, consulta a un profesional habilitado.';
+    }
+
+    private function providerQuotaKey(string $supervisorUid): string
+    {
+        return 'ai-provider-daily:'.$supervisorUid;
+    }
+
+    private function providerQuota(string $supervisorUid): array
+    {
+        $key = $this->providerQuotaKey($supervisorUid);
+        $limit = max(1, (int) config('ai.provider_calls_per_day', 50));
+        $retryAfter = RateLimiter::availableIn($key);
+
+        return [
+            'limit' => $limit,
+            'remaining' => RateLimiter::remaining($key, $limit),
+            'reset_at' => $retryAfter > 0 ? now()->addSeconds($retryAfter)->toIso8601String() : null,
+            'window' => 'rolling_24_hours',
+        ];
+    }
+
+    private function providerQuotaRetryAfter(string $supervisorUid): int
+    {
+        return max(1, RateLimiter::availableIn($this->providerQuotaKey($supervisorUid)));
     }
 
     private function generateLocalAnswer($question, $patients, $notes)
