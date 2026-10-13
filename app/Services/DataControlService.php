@@ -42,6 +42,9 @@ class DataControlService
             'event_reminders_enabled', 'motivational_enabled', 'motivational_time',
             'craving_alerts_enabled', 'supervisor_alerts_enabled',
             'support_contact_alerts_enabled', 'timezone', 'created_at', 'updated_at',
+            'adaptive_suggestions_enabled', 'inactivity_reminder_enabled',
+            'inactivity_days', 'inactivity_reminder_time',
+            'adaptive_craving_threshold', 'adaptive_anxiety_threshold',
         ],
         'patient_achievements' => [
             'patient_achievement_id', 'achievement_id', 'progress', 'status',

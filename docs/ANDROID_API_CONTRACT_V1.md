@@ -2683,3 +2683,17 @@ pendiente del UID, purga sus datos locales y cierra la sesión. Los perfiles y e
 correo no usan cola offline. Una cuenta marcada en eliminación recibe `423` en
 accesos y sincronizaciones; tokens inválidos o una identidad Firebase ya
 deshabilitada reciben `401`.
+
+## Reglas adaptativas experimentales (Etapa 9)
+
+El contrato detallado está en `docs/STAGE9_ADAPTIVE_RULES_CONTRACT.md`.
+Las rutas de `notification-settings` conservan su forma y aceptan seis campos
+aditivos: dos interruptores opt-in, días y hora de inactividad y dos valores de
+prueba para escalas. Si faltan, los interruptores son `false`, los días son `3`,
+la hora es `18:00` y ambos valores de escala son `8`.
+
+`adaptive_rules_available` y `adaptive_rules_version` son de solo respuesta.
+Android no evalúa reglas si la disponibilidad falta o es falsa. Las sugerencias
+inmediatas y los recordatorios de inactividad son locales; Laravel no envía FCM
+ni alertas a terceros por estas reglas. Ningún resultado se describe como
+diagnóstico, predicción de recaída o criterio clínicamente validado.

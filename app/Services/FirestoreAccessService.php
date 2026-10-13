@@ -355,7 +355,11 @@ class FirestoreAccessService
                 'achievement_enabled', 'achievement_time',
                 'event_reminders_enabled', 'motivational_enabled', 'motivational_time',
                 'craving_alerts_enabled', 'supervisor_alerts_enabled',
-                'support_contact_alerts_enabled', 'timezone',
+                'support_contact_alerts_enabled',
+                'adaptive_suggestions_enabled', 'inactivity_reminder_enabled',
+                'inactivity_days', 'inactivity_reminder_time',
+                'adaptive_craving_threshold', 'adaptive_anxiety_threshold',
+                'timezone',
             ]);
         }
 
@@ -586,7 +590,11 @@ class FirestoreAccessService
                 'sober_day_enabled', 'sober_day_time',
                 'achievement_enabled', 'achievement_time',
                 'event_reminders_enabled', 'motivational_enabled', 'motivational_time',
-                'supervisor_alerts_enabled', 'support_contact_alerts_enabled', 'timezone',
+                'supervisor_alerts_enabled', 'support_contact_alerts_enabled',
+                'adaptive_suggestions_enabled', 'inactivity_reminder_enabled',
+                'inactivity_days', 'inactivity_reminder_time',
+                'adaptive_craving_threshold', 'adaptive_anxiety_threshold',
+                'timezone',
             ]);
         }
 

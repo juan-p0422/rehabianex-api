@@ -349,16 +349,28 @@ class FirestorePermissionsAuditTest extends TestCase
         [, $access] = $this->environment();
         $created = $access->prepareCreate(
             'notification-settings',
-            ['daily_note_enabled' => true],
+            [
+                'daily_note_enabled' => true,
+                'adaptive_suggestions_enabled' => true,
+                'inactivity_reminder_enabled' => true,
+                'inactivity_days' => 3,
+                'inactivity_reminder_time' => '18:00',
+                'adaptive_craving_threshold' => 8,
+                'adaptive_anxiety_threshold' => 8,
+                'adaptive_rules_available' => true,
+            ],
             $this->request('patient', 'patient-1')
         );
 
         $this->assertSame('patient-1', $created['patient_uid']);
         $this->assertSame('patient-1', $created['user_uid']);
+        $this->assertTrue($created['adaptive_suggestions_enabled']);
+        $this->assertTrue($created['inactivity_reminder_enabled']);
+        $this->assertArrayNotHasKey('adaptive_rules_available', $created);
 
         $this->assertForbidden(fn () => $access->prepareCreate(
             'notification-settings',
-            ['daily_note_enabled' => true],
+            ['daily_note_enabled' => true, 'adaptive_suggestions_enabled' => true],
             $this->request('supervisor', 'supervisor-1')
         ));
     }

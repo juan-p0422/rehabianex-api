@@ -480,6 +480,27 @@ class FirestoreCrudController extends Controller
                 'craving_alerts_enabled' => ['sometimes', 'boolean'],
                 'supervisor_alerts_enabled' => ['sometimes', 'boolean'],
                 'support_contact_alerts_enabled' => ['sometimes', 'boolean'],
+                'adaptive_suggestions_enabled' => ['sometimes', 'boolean'],
+                'inactivity_reminder_enabled' => ['sometimes', 'boolean'],
+                'inactivity_days' => [
+                    'sometimes',
+                    'integer',
+                    'between:'.config('adaptive_support.ranges.inactivity_days.0', 2)
+                        .','.config('adaptive_support.ranges.inactivity_days.1', 14),
+                ],
+                'inactivity_reminder_time' => ['sometimes', 'date_format:H:i'],
+                'adaptive_craving_threshold' => [
+                    'sometimes',
+                    'integer',
+                    'between:'.config('adaptive_support.ranges.scale_threshold.0', 6)
+                        .','.config('adaptive_support.ranges.scale_threshold.1', 10),
+                ],
+                'adaptive_anxiety_threshold' => [
+                    'sometimes',
+                    'integer',
+                    'between:'.config('adaptive_support.ranges.scale_threshold.0', 6)
+                        .','.config('adaptive_support.ranges.scale_threshold.1', 10),
+                ],
                 'timezone' => ['sometimes', 'timezone'],
             ],
             'interventions' => [
@@ -700,6 +721,14 @@ class FirestoreCrudController extends Controller
             'craving_alerts_enabled' => false,
             'supervisor_alerts_enabled' => false,
             'support_contact_alerts_enabled' => false,
+            'adaptive_rules_available' => (bool) config('adaptive_support.available', true),
+            'adaptive_rules_version' => (string) config('adaptive_support.rules_version', 'experimental-v1'),
+            'adaptive_suggestions_enabled' => (bool) config('adaptive_support.defaults.suggestions_enabled', false),
+            'inactivity_reminder_enabled' => (bool) config('adaptive_support.defaults.inactivity_reminder_enabled', false),
+            'inactivity_days' => (int) config('adaptive_support.defaults.inactivity_days', 3),
+            'inactivity_reminder_time' => (string) config('adaptive_support.defaults.inactivity_reminder_time', '18:00'),
+            'adaptive_craving_threshold' => (int) config('adaptive_support.defaults.craving_threshold', 8),
+            'adaptive_anxiety_threshold' => (int) config('adaptive_support.defaults.anxiety_threshold', 8),
             'timezone' => 'America/Mexico_City',
         ], $data, [
             'settings_id' => $settingsId,
@@ -710,6 +739,8 @@ class FirestoreCrudController extends Controller
             'daily_check_in_time' => $dailyTime,
             'daily_note_enabled' => $dailyEnabled,
             'daily_note_time' => $dailyTime,
+            'adaptive_rules_available' => (bool) config('adaptive_support.available', true),
+            'adaptive_rules_version' => (string) config('adaptive_support.rules_version', 'experimental-v1'),
             'timezone' => $data['timezone'] ?? 'America/Mexico_City',
         ]);
     }
