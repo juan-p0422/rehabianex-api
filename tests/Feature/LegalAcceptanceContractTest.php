@@ -12,6 +12,32 @@ use Tests\TestCase;
 
 class LegalAcceptanceContractTest extends TestCase
 {
+    public function test_admin_profile_projects_current_privacy_read_confirmation(): void
+    {
+        $controller = new AuthController(
+            $this->firebaseStub(Mockery::mock(), Mockery::mock())
+        );
+        $method = new \ReflectionMethod($controller, 'stableProfile');
+        $profile = $method->invoke($controller, [
+            'uid' => 'admin-privacy-test',
+            'role' => 'admin',
+            'privacy_notice_read' => [
+                'privacy_notice_version' => '2026-10-18',
+                'confirmed_at' => '2026-10-19T10:00:00-06:00',
+                'status' => 'confirmed',
+                'uid' => 'admin-privacy-test',
+            ],
+        ], 'admin');
+
+        $this->assertSame([
+            'privacy_notice_version' => '2026-10-18',
+            'confirmed_at' => '2026-10-19T10:00:00-06:00',
+            'status' => 'confirmed',
+            'is_current' => true,
+        ], $profile['privacy_notice_read']);
+        $this->assertArrayNotHasKey('uid', $profile['privacy_notice_read']);
+    }
+
     public function test_registration_without_privacy_acceptance_returns_422(): void
     {
         $this->app->instance(FirebaseService::class, $this->firebaseStub(Mockery::mock(), Mockery::mock()));

@@ -720,6 +720,7 @@ class AuthController extends Controller
                 'status',
                 'created_at',
                 'updated_at',
+                'privacy_notice_read',
             ]));
 
             return array_replace([
@@ -731,9 +732,13 @@ class AuthController extends Controller
                 'status' => 'active',
                 'created_at' => null,
                 'updated_at' => null,
+                'privacy_notice_read' => null,
             ], $allowed, [
                 'role' => 'admin',
                 'collection' => 'admins',
+                'privacy_notice_read' => $this->privacyNoticeReadForResponse(
+                    $profile['privacy_notice_read'] ?? null
+                ),
             ]);
         }
 
