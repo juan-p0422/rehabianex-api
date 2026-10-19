@@ -27,7 +27,7 @@ class AuthDuplicateEmailContractTest extends TestCase
             'full_name' => 'Cuenta duplicada',
             'role' => 'patient',
             'privacy_notice_accepted' => true,
-            'privacy_notice_version' => '2026-08-01',
+            'privacy_notice_version' => '2026-10-18',
         ])->assertConflict()
             ->assertExactJson([
                 'ok' => false,

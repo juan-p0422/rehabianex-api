@@ -23,7 +23,7 @@ class AuthRegistrationFormValidationTest extends TestCase
                 'role' => 'patient',
                 'phone' => '+14155552671',
                 'privacy_notice_accepted' => true,
-                'privacy_notice_version' => '2026-08-01',
+                'privacy_notice_version' => '2026-10-18',
             ],
         ));
         $errors = $response->getData(true)['errors'];
@@ -45,7 +45,7 @@ class AuthRegistrationFormValidationTest extends TestCase
                 'role' => 'supervisor',
                 'supervisor_type' => 'other',
                 'privacy_notice_accepted' => true,
-                'privacy_notice_version' => '2026-08-01',
+                'privacy_notice_version' => '2026-10-18',
             ],
         ));
 

@@ -48,6 +48,7 @@ class ApiSecurityTest extends TestCase
             'api/auth/refresh',
             'api/auth/google',
             'api/auth/firebase',
+            'api/legal/privacy-notice',
         ];
 
         foreach (Route::getRoutes() as $route) {

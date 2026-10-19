@@ -766,6 +766,7 @@ class AuthController extends Controller
             'created_at' => null,
             'updated_at' => null,
             'legal_acceptance' => null,
+            'privacy_notice_read' => null,
         ], $profile);
 
         $stable['role'] = $role;
@@ -787,6 +788,9 @@ class AuthController extends Controller
         $stable['legal_acceptance'] = $this->legalAcceptanceForResponse(
             $profile['legal_acceptance'] ?? null
         );
+        $stable['privacy_notice_read'] = $this->privacyNoticeReadForResponse(
+            $profile['privacy_notice_read'] ?? null
+        );
 
         return $stable;
     }
@@ -807,6 +811,26 @@ class AuthController extends Controller
         ];
     }
 
+    private function privacyNoticeReadForResponse(mixed $confirmation): ?array
+    {
+        if (! is_array($confirmation)
+            || ($confirmation['status'] ?? null) !== 'confirmed'
+            || empty($confirmation['privacy_notice_version'])
+            || empty($confirmation['confirmed_at'])) {
+            return null;
+        }
+
+        return [
+            'privacy_notice_version' => (string) $confirmation['privacy_notice_version'],
+            'confirmed_at' => (string) $confirmation['confirmed_at'],
+            'status' => 'confirmed',
+            'is_current' => hash_equals(
+                $this->privacyNoticeVersion(),
+                (string) $confirmation['privacy_notice_version']
+            ),
+        ];
+    }
+
     private function stableProfileCollection(string $role): string
     {
         return match ($role) {
@@ -818,7 +842,7 @@ class AuthController extends Controller
 
     private function privacyNoticeVersion(): string
     {
-        return (string) config('legal.privacy_notice_version', '2026-08-01');
+        return (string) config('legal.privacy_notice_version', '2026-10-18');
     }
 
     private function publicRegistrationRoles(): array

@@ -3,6 +3,7 @@
 use App\Http\Middleware\AuthenticateFirebase;
 use App\Http\Middleware\AuthenticateNotificationScheduler;
 use App\Http\Middleware\RequireAdmin;
+use App\Http\Middleware\RequirePrivacyNoticeRead;
 use App\Http\Responses\ApiErrorResponse;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -21,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'firebase.auth' => AuthenticateFirebase::class,
             'notification.scheduler' => AuthenticateNotificationScheduler::class,
             'admin' => RequireAdmin::class,
+            'privacy.notice.read' => RequirePrivacyNoticeRead::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

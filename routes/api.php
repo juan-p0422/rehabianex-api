@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\FcmDemoController;
 use App\Http\Controllers\Api\FcmTokenController;
 use App\Http\Controllers\Api\FirestoreCrudController;
 use App\Http\Controllers\Api\InternalNotificationDispatchController;
+use App\Http\Controllers\Api\LegalNoticeController;
 use App\Http\Controllers\Api\SupervisionController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\SupervisorAIController;
@@ -17,6 +18,9 @@ Route::get('/health', fn () => response()->json([
     'ok' => true,
     'status' => 'healthy',
 ]))->middleware('throttle:60,1');
+
+Route::get('/legal/privacy-notice', [LegalNoticeController::class, 'show'])
+    ->middleware('throttle:60,1');
 
 Route::post('/internal/notifications/dispatch-due', InternalNotificationDispatchController::class)
     ->middleware(['notification.scheduler', 'throttle:12,1']);
@@ -31,62 +35,67 @@ Route::prefix('auth')->group(function () {
 
 Route::middleware('firebase.auth')->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::post('/legal/privacy-notice/read', [LegalNoticeController::class, 'confirmRead'])
+        ->middleware('throttle:10,1');
     Route::post('/auth/email/sync', [AuthController::class, 'syncEmail'])
         ->middleware('throttle:10,1');
     Route::post('/auth/logout', [AuthController::class, 'logout']);
 
-    Route::get('/data-control/summary', [DataControlController::class, 'summary'])
-        ->middleware('throttle:20,1');
-    Route::get('/data-control/export', [DataControlController::class, 'export'])
-        ->middleware('throttle:3,1');
-    Route::post('/data-control/account-deletion-requests', [DataControlController::class, 'requestAccountDeletion'])
-        ->middleware('throttle:3,1');
+    Route::middleware('privacy.notice.read')->group(function () {
 
-    Route::post('/notifications/fcm-token', [FcmTokenController::class, 'register'])
-        ->middleware('throttle:10,1');
-    Route::delete('/notifications/fcm-token', [FcmTokenController::class, 'revoke'])
-        ->middleware('throttle:10,1');
-    Route::post('/notifications/test', [FcmTokenController::class, 'test'])
-        ->middleware('throttle:3,1');
-    Route::post('/notifications/demo', FcmDemoController::class)
-        ->middleware('throttle:fcm-demo');
+        Route::get('/data-control/summary', [DataControlController::class, 'summary'])
+            ->middleware('throttle:20,1');
+        Route::get('/data-control/export', [DataControlController::class, 'export'])
+            ->middleware('throttle:3,1');
+        Route::post('/data-control/account-deletion-requests', [DataControlController::class, 'requestAccountDeletion'])
+            ->middleware('throttle:3,1');
 
-    Route::get('/supervisors/{id}/patients', [PatientController::class, 'supervisedPatients']);
-    Route::get('/supervisors/{uid}/dashboard-summary', [DashboardSummaryController::class, 'supervisor'])
-        ->middleware('throttle:30,1');
-    Route::post(
-        '/supervisors/{supervisor_uid}/patients/{patient_uid}/unlink',
-        [SupervisionController::class, 'unlink']
-    );
-    Route::get('/supervisors/resolve', [SupervisionController::class, 'resolveSupervisor'])
-        ->middleware('throttle:20,1');
-    Route::get('/patients/{id}/notes', [PatientController::class, 'notes']);
-    Route::post('/patients/{id}/notes', [PatientController::class, 'storeNote']);
+        Route::post('/notifications/fcm-token', [FcmTokenController::class, 'register'])
+            ->middleware('throttle:10,1');
+        Route::delete('/notifications/fcm-token', [FcmTokenController::class, 'revoke'])
+            ->middleware('throttle:10,1');
+        Route::post('/notifications/test', [FcmTokenController::class, 'test'])
+            ->middleware('throttle:3,1');
+        Route::post('/notifications/demo', FcmDemoController::class)
+            ->middleware('throttle:fcm-demo');
 
-    Route::patch('/supervision-requests/{id}/respond', [SupervisionController::class, 'respond']);
+        Route::get('/supervisors/{id}/patients', [PatientController::class, 'supervisedPatients']);
+        Route::get('/supervisors/{uid}/dashboard-summary', [DashboardSummaryController::class, 'supervisor'])
+            ->middleware('throttle:30,1');
+        Route::post(
+            '/supervisors/{supervisor_uid}/patients/{patient_uid}/unlink',
+            [SupervisionController::class, 'unlink']
+        );
+        Route::get('/supervisors/resolve', [SupervisionController::class, 'resolveSupervisor'])
+            ->middleware('throttle:20,1');
+        Route::get('/patients/{id}/notes', [PatientController::class, 'notes']);
+        Route::post('/patients/{id}/notes', [PatientController::class, 'storeNote']);
 
-    Route::post('/ai/supervisor-chat', [SupervisorAIController::class, 'chat'])
-        ->middleware('throttle:ai-chat');
-    Route::get('/ai/supervisor-chat/eligibility', [SupervisorAIController::class, 'eligibility'])
-        ->middleware('throttle:30,1');
+        Route::patch('/supervision-requests/{id}/respond', [SupervisionController::class, 'respond']);
 
-    foreach (array_keys(config('firestore.resources')) as $resource) {
-        Route::get("/{$resource}", [FirestoreCrudController::class, 'index'])->defaults('resource', $resource);
-        Route::post("/{$resource}", [FirestoreCrudController::class, 'store'])->defaults('resource', $resource);
-        Route::get("/{$resource}/{id}", [FirestoreCrudController::class, 'show'])->defaults('resource', $resource);
-        Route::put("/{$resource}/{id}", [FirestoreCrudController::class, 'update'])->defaults('resource', $resource);
-        Route::patch("/{$resource}/{id}", [FirestoreCrudController::class, 'update'])->defaults('resource', $resource);
-        Route::delete("/{$resource}/{id}", [FirestoreCrudController::class, 'destroy'])->defaults('resource', $resource);
-    }
+        Route::post('/ai/supervisor-chat', [SupervisorAIController::class, 'chat'])
+            ->middleware('throttle:ai-chat');
+        Route::get('/ai/supervisor-chat/eligibility', [SupervisorAIController::class, 'eligibility'])
+            ->middleware('throttle:30,1');
 
-    Route::get('/ping', fn () => response()->json([
-        'ok' => true,
-        'status' => 'healthy',
-    ]));
+        foreach (array_keys(config('firestore.resources')) as $resource) {
+            Route::get("/{$resource}", [FirestoreCrudController::class, 'index'])->defaults('resource', $resource);
+            Route::post("/{$resource}", [FirestoreCrudController::class, 'store'])->defaults('resource', $resource);
+            Route::get("/{$resource}/{id}", [FirestoreCrudController::class, 'show'])->defaults('resource', $resource);
+            Route::put("/{$resource}/{id}", [FirestoreCrudController::class, 'update'])->defaults('resource', $resource);
+            Route::patch("/{$resource}/{id}", [FirestoreCrudController::class, 'update'])->defaults('resource', $resource);
+            Route::delete("/{$resource}/{id}", [FirestoreCrudController::class, 'destroy'])->defaults('resource', $resource);
+        }
+
+        Route::get('/ping', fn () => response()->json([
+            'ok' => true,
+            'status' => 'healthy',
+        ]));
+    });
 });
 
 Route::prefix('admin')
-    ->middleware(['firebase.auth', 'admin'])
+    ->middleware(['firebase.auth', 'privacy.notice.read', 'admin'])
     ->group(function () {
         Route::get('/ping', fn () => response()->json([
             'ok' => true,
