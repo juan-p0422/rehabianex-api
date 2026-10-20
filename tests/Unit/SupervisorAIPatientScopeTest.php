@@ -199,12 +199,13 @@ class SupervisorAIPatientScopeTest extends TestCase
 
         $response = $controller->chat(Request::create('/api/ai/supervisor-chat', 'POST', [
             'supervisor_uid' => 'supervisor-1',
-            'question' => 'Resumen local',
+            'question' => 'Resume mis registros de esta semana',
             'mode' => 'local',
         ]));
         $payload = $response->getData(true);
 
         $this->assertSame('local', $payload['mode']);
+        $this->assertSame('Resume mis registros de esta semana', $payload['question']);
         $this->assertFalse($payload['stored']);
         $this->assertNull($payload['session_id']);
         $this->assertSame('disabled', $payload['history_persistence']);
