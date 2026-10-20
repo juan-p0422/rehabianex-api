@@ -210,6 +210,10 @@ class AuthController extends Controller
             return $this->deletionBlockedResponse();
         }
 
+        if ($uid !== null && $profile !== null) {
+            $profile = $this->ensurePrivacyNoticeReadPending($uid, $role, $profile);
+        }
+
         $normalizedProfile = $this->stableProfile($profile, $role);
 
         return response()->json([
@@ -290,7 +294,11 @@ class AuthController extends Controller
             $uid = (string) $request->attributes->get('firebase_uid');
             $user = $request->attributes->get('firebase_user');
             $role = $this->roleForUser($user, 'patient');
-            $profile = $this->stableProfile($this->profileForUid($uid, $role), $role);
+            $storedProfile = $this->profileForUid($uid, $role);
+            if ($storedProfile !== null) {
+                $storedProfile = $this->ensurePrivacyNoticeReadPending($uid, $role, $storedProfile);
+            }
+            $profile = $this->stableProfile($storedProfile, $role);
             if ($role === 'patient') {
                 $profile['supervisor'] = $this->linkedSupervisorSummary($profile);
             }
@@ -532,6 +540,9 @@ class AuthController extends Controller
         }
 
         $profile = array_replace($current, $profile);
+        if (! is_array($profile['privacy_notice_read'] ?? null)) {
+            $profile['privacy_notice_read'] = $this->pendingPrivacyNoticeRead();
+        }
         $this->db->collection($collection)->document($uid)->set($profile);
 
         return $profile;
@@ -833,6 +844,31 @@ class AuthController extends Controller
                 $this->privacyNoticeVersion(),
                 (string) $confirmation['privacy_notice_version']
             ),
+        ];
+    }
+
+    private function ensurePrivacyNoticeReadPending(string $uid, string $role, array $profile): array
+    {
+        if (is_array($profile['privacy_notice_read'] ?? null)) {
+            return $profile;
+        }
+
+        $pending = $this->pendingPrivacyNoticeRead();
+
+        $this->db->collection($this->profileCollection($role))
+            ->document($uid)
+            ->set(['privacy_notice_read' => $pending], ['merge' => true]);
+        $profile['privacy_notice_read'] = $pending;
+
+        return $profile;
+    }
+
+    private function pendingPrivacyNoticeRead(): array
+    {
+        return [
+            'privacy_notice_version' => $this->privacyNoticeVersion(),
+            'required_since' => Carbon::now()->toIso8601String(),
+            'status' => 'pending',
         ];
     }
 

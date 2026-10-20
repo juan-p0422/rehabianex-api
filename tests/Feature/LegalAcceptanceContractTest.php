@@ -191,6 +191,11 @@ class LegalAcceptanceContractTest extends TestCase
             'role' => 'patient',
             'supervisor_uid' => 'supervisor-linked',
             'supervision_status' => 'accepted',
+            'privacy_notice_read' => [
+                'privacy_notice_version' => '2026-10-18',
+                'required_since' => '2026-10-19T10:00:00-06:00',
+                'status' => 'pending',
+            ],
         ];
 
         $patientSnapshot = Mockery::mock();

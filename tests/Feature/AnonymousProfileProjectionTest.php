@@ -21,13 +21,28 @@ class AnonymousProfileProjectionTest extends TestCase
 
         $snapshot = Mockery::mock();
         $snapshot->shouldReceive('exists')->twice()->andReturnTrue();
-        $snapshot->shouldReceive('data')->twice()->andReturn($this->anonymousProfile());
+        $snapshot->shouldReceive('data')->twice()->andReturn(
+            $this->anonymousProfile(),
+            array_replace($this->anonymousProfile(), [
+                'privacy_notice_read' => [
+                    'privacy_notice_version' => '2026-10-18',
+                    'required_since' => '2026-10-19T12:00:00-06:00',
+                    'status' => 'pending',
+                ],
+            ]),
+        );
         $document = Mockery::mock();
         $document->shouldReceive('snapshot')->twice()->andReturn($snapshot);
+        $document->shouldReceive('set')->once()->with(
+            Mockery::on(fn (array $data): bool => ($data['privacy_notice_read']['status'] ?? null) === 'pending'
+                && ! array_key_exists('confirmed_at', $data['privacy_notice_read'])
+            ),
+            ['merge' => true],
+        );
         $collection = Mockery::mock();
-        $collection->shouldReceive('document')->twice()->with($user->uid)->andReturn($document);
+        $collection->shouldReceive('document')->times(3)->with($user->uid)->andReturn($document);
         $db = Mockery::mock();
-        $db->shouldReceive('collection')->twice()->with('patients')->andReturn($collection);
+        $db->shouldReceive('collection')->times(3)->with('patients')->andReturn($collection);
 
         Http::fake([
             'https://identitytoolkit.googleapis.com/*' => Http::response([
@@ -70,8 +85,14 @@ class AnonymousProfileProjectionTest extends TestCase
         $snapshot->shouldReceive('data')->once()->andReturn($this->anonymousProfile());
         $document = Mockery::mock();
         $document->shouldReceive('snapshot')->once()->andReturn($snapshot);
+        $document->shouldReceive('set')->once()->with(
+            Mockery::on(fn (array $data): bool => ($data['privacy_notice_read']['status'] ?? null) === 'pending'
+                && ! array_key_exists('confirmed_at', $data['privacy_notice_read'])
+            ),
+            ['merge' => true],
+        );
         $patients = Mockery::mock();
-        $patients->shouldReceive('document')->once()->with($user->uid)->andReturn($document);
+        $patients->shouldReceive('document')->twice()->with($user->uid)->andReturn($document);
 
         $consentDocuments = Mockery::mock();
         $consentDocuments->shouldReceive('getIterator')->andReturn(new \ArrayIterator([]));
@@ -80,7 +101,7 @@ class AnonymousProfileProjectionTest extends TestCase
         $consents->shouldReceive('documents')->once()->andReturn($consentDocuments);
 
         $db = Mockery::mock();
-        $db->shouldReceive('collection')->once()->with('patients')->andReturn($patients);
+        $db->shouldReceive('collection')->twice()->with('patients')->andReturn($patients);
         $db->shouldReceive('collection')->once()->with('consents')->andReturn($consents);
         $firebase = $this->firebaseStub(Mockery::mock(), $db);
 

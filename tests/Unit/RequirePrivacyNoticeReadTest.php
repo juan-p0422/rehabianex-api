@@ -9,6 +9,23 @@ use Tests\TestCase;
 
 class RequirePrivacyNoticeReadTest extends TestCase
 {
+    public function test_legacy_profile_without_confirmation_is_sent_to_the_gate(): void
+    {
+        $request = Request::create('/api/ping');
+        $request->attributes->set('firebase_profile', [
+            'uid' => 'legacy-profile-test',
+            'role' => 'patient',
+        ]);
+
+        $response = (new RequirePrivacyNoticeRead)->handle(
+            $request,
+            fn (): Response => response()->json(['ok' => true]),
+        );
+
+        $this->assertSame(428, $response->getStatusCode());
+        $this->assertSame('privacy_notice_read_required', $response->getData(true)['code']);
+    }
+
     public function test_missing_or_old_confirmation_is_blocked(): void
     {
         $request = Request::create('/api/ping');
