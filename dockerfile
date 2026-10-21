@@ -26,8 +26,19 @@ RUN docker-php-ext-install \
     bcmath \
     xml
 
-RUN pecl install grpc \
-    && docker-php-ext-enable grpc
+ARG GRPC_VERSION=1.84.0
+
+RUN set -eux; \
+    for attempt in 1 2 3; do \
+        if pecl install "grpc-${GRPC_VERSION}"; then \
+            break; \
+        fi; \
+        if [ "$attempt" -eq 3 ]; then \
+            exit 1; \
+        fi; \
+        sleep 10; \
+    done; \
+    docker-php-ext-enable grpc
 
 RUN printf 'expose_php=Off\n' > /usr/local/etc/php/conf.d/rehabianex-security.ini
 
