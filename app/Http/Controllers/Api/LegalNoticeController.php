@@ -34,9 +34,17 @@ class LegalNoticeController extends Controller
                 'version' => $this->version(),
                 'published_on' => (string) config('legal.privacy_notice_published_on'),
                 'content' => trim($content),
-                'responsible_status' => 'pending_confirmation',
-                'contact_status' => 'pending_confirmation',
+                'responsible_status' => 'identified',
+                'contact_status' => 'phone_confirmed',
+                'permanent_deletion_contact_status' => 'email_confirmed',
+                'pending_legal_fields' => ['applicable_address'],
+                'closed_beta_minimum_age' => (int) config('legal.closed_beta_minimum_age', 18),
+                'closed_beta_age_policy_status' => (string) config(
+                    'legal.closed_beta_age_policy_status',
+                    'pending_author_confirmation'
+                ),
                 'sensitive_data_consent_separate' => true,
+                'sensitive_data_consent_version' => (string) config('legal.sensitive_data_consent_version'),
             ],
         ]);
     }
@@ -74,10 +82,22 @@ class LegalNoticeController extends Controller
                 'status' => 'confirmed',
             ];
 
+            $profile = (array) $request->attributes->get('firebase_profile', []);
+            $previous = $profile['privacy_notice_read'] ?? null;
+            $updates = ['privacy_notice_read' => $confirmation];
+            $previousPreserved = is_array($previous)
+                && ($previous['status'] ?? null) === 'confirmed'
+                && is_string($previous['privacy_notice_version'] ?? null)
+                && $previous['privacy_notice_version'] !== $this->version();
+
+            if ($previousPreserved) {
+                $updates['privacy_notice_read_previous'] = $previous;
+            }
+
             $this->firebase->db()
                 ->collection($collection)
                 ->document($uid)
-                ->set(['privacy_notice_read' => $confirmation], ['merge' => true]);
+                ->set($updates, ['merge' => true]);
 
             return response()->json([
                 'ok' => true,
@@ -87,6 +107,7 @@ class LegalNoticeController extends Controller
                     'confirmed_at' => $confirmedAt,
                     'status' => 'confirmed',
                 ],
+                'previous_confirmation_preserved' => $previousPreserved,
             ]);
         } catch (Throwable) {
             return response()->json([
@@ -98,7 +119,7 @@ class LegalNoticeController extends Controller
 
     private function version(): string
     {
-        return (string) config('legal.privacy_notice_version', '2026-10-18');
+        return (string) config('legal.privacy_notice_version', '2026-10-30');
     }
 
     private function profileCollection(string $role): ?string

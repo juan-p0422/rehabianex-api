@@ -883,7 +883,7 @@ class AuthController extends Controller
 
     private function privacyNoticeVersion(): string
     {
-        return (string) config('legal.privacy_notice_version', '2026-10-18');
+        return (string) config('legal.privacy_notice_version', '2026-10-30');
     }
 
     private function publicRegistrationRoles(): array

@@ -20,7 +20,7 @@ class RequirePrivacyNoticeRead
 
         $profile = $request->attributes->get('firebase_profile');
         $confirmation = is_array($profile) ? ($profile['privacy_notice_read'] ?? null) : null;
-        $currentVersion = (string) config('legal.privacy_notice_version', '2026-10-18');
+        $currentVersion = (string) config('legal.privacy_notice_version', '2026-10-30');
         $isCurrent = is_array($confirmation)
             && ($confirmation['status'] ?? null) === 'confirmed'
             && is_string($confirmation['privacy_notice_version'] ?? null)

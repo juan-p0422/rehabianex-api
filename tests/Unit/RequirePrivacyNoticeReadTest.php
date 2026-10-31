@@ -51,7 +51,7 @@ class RequirePrivacyNoticeReadTest extends TestCase
         $request->attributes->set('firebase_profile', [
             'privacy_notice_read' => [
                 'status' => 'confirmed',
-                'privacy_notice_version' => '2026-10-18',
+                'privacy_notice_version' => '2026-10-30',
             ],
         ]);
 
