@@ -14,7 +14,7 @@ class AIService
         $baseUrl = trim((string) config('ai.base_url'));
         $model = trim((string) config('ai.model'));
 
-        if ($apiKey === '' || $baseUrl === '' || $model === '') {
+        if ($apiKey === '' || $baseUrl === '' || $model === '' || ! $this->hasSafeTransport($baseUrl)) {
             return $this->failure('configuration_missing', false);
         }
 
@@ -127,6 +127,20 @@ PROMPT;
             'error_code' => $code,
             'retryable' => $retryable,
         ];
+    }
+
+    private function hasSafeTransport(string $url): bool
+    {
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        if ($scheme === 'https' && $host !== '') {
+            return true;
+        }
+
+        return $scheme === 'http'
+            && app()->environment(['local', 'testing'])
+            && in_array($host, ['127.0.0.1', 'localhost', '::1'], true);
     }
 
     private function safeUsage(mixed $usage): ?array

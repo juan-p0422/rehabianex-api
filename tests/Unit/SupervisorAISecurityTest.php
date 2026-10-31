@@ -140,6 +140,37 @@ class SupervisorAISecurityTest extends TestCase
         ], $result);
     }
 
+    public function test_provider_rejects_plain_http_outside_loopback_without_sending_sensitive_context(): void
+    {
+        $this->configureProvider();
+        config()->set('ai.base_url', 'http://provider.test/chat');
+        Http::fake();
+
+        $result = (new AIService)->askSupervisorAssistant(
+            'Consulta sintética con datos sensibles',
+            ['recent_notes' => [['note_text' => 'dato sintético']]]
+        );
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('configuration_missing', $result['error_code']);
+        $this->assertFalse($result['retryable']);
+        Http::assertNothingSent();
+    }
+
+    public function test_local_loopback_http_remains_available_for_isolated_qa(): void
+    {
+        $this->configureProvider();
+        config()->set('ai.base_url', 'http://127.0.0.1:9/chat');
+        Http::fake(['*' => Http::response([
+            'choices' => [['message' => ['content' => 'Respuesta sintética']]],
+        ])]);
+
+        $result = (new AIService)->askSupervisorAssistant('Consulta sintética', []);
+
+        $this->assertTrue($result['ok']);
+        Http::assertSentCount(1);
+    }
+
     public function test_provider_rate_limit_timeout_unavailable_and_empty_response_are_classified(): void
     {
         $this->configureProvider();
