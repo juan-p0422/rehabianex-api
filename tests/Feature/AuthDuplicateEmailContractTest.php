@@ -26,8 +26,11 @@ class AuthDuplicateEmailContractTest extends TestCase
             'password' => 'Strong-Temporary-4937!',
             'full_name' => 'Cuenta duplicada',
             'role' => 'patient',
+            'age' => 20,
             'privacy_notice_accepted' => true,
-            'privacy_notice_version' => '2026-10-18',
+            'privacy_notice_version' => '2026-10-30',
+            'sensitive_data_consent_accepted' => true,
+            'sensitive_data_consent_version' => '2026-10-27',
         ])->assertConflict()
             ->assertExactJson([
                 'ok' => false,

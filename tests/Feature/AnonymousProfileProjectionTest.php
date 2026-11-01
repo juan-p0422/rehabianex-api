@@ -25,7 +25,7 @@ class AnonymousProfileProjectionTest extends TestCase
             $this->anonymousProfile(),
             array_replace($this->anonymousProfile(), [
                 'privacy_notice_read' => [
-                    'privacy_notice_version' => '2026-10-18',
+                    'privacy_notice_version' => '2026-10-30',
                     'required_since' => '2026-10-19T12:00:00-06:00',
                     'status' => 'pending',
                 ],

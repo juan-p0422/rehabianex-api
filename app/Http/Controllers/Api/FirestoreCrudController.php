@@ -375,7 +375,12 @@ class FirestoreCrudController extends Controller
                 'full_name' => ['sometimes', 'required', 'string', new NonBlankText, 'max:120'],
                 'nickname' => ['sometimes', 'nullable', 'string', new NonBlankText, 'max:80'],
                 'phone' => ['sometimes', 'nullable', 'string', new MexicoPhone],
-                'age' => ['sometimes', 'integer', 'min:1', 'max:120'],
+                'age' => [
+                    'sometimes',
+                    'integer',
+                    'min:'.config('legal.closed_beta_minimum_age', 18),
+                    'max:120',
+                ],
                 'gender' => ['sometimes', 'nullable', 'string', 'max:40'],
                 'is_anonymous' => ['sometimes', 'boolean'],
                 'privacy_mode' => ['sometimes', 'boolean'],
@@ -524,6 +529,7 @@ class FirestoreCrudController extends Controller
             'supervisor_type_other.required_if' => 'Describe el tipo de supervisor cuando seleccionas Otro.',
             'relationship_category.in' => 'La categoría de relación seleccionada no es válida.',
             'relationship_other.required_if' => 'Describe la relación cuando seleccionas Otro.',
+            'age.min' => 'La beta cerrada está disponible únicamente para personas mayores de 18 años.',
         ]);
 
         if ($validator->fails()) {

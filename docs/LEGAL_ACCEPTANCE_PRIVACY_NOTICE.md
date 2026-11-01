@@ -1,6 +1,6 @@
 # Aceptación legal del aviso de privacidad
 
-Fecha de implementación: 2026-08-03.
+Fecha de revisión: 2026-10-30.
 
 ## Alcance
 
@@ -8,9 +8,9 @@ La aceptación del aviso de privacidad es un requisito de registro y permanece
 separada de los consentimientos de supervisión almacenados en `consents`. No
 otorga a un supervisor acceso a información del paciente.
 
-La versión vigente se configura en `config/legal.php`. El valor predeterminado es
-`2026-08-01`; despliegues posteriores pueden definir `PRIVACY_NOTICE_VERSION`
-sin cambiar código. Este cambio no agrega ni modifica variables reales.
+La versión vigente se configura en `config/legal.php`. El valor predeterminado
+para la beta cerrada es `2026-10-30`; un despliegue puede definir
+`PRIVACY_NOTICE_VERSION` sin cambiar código.
 
 ## Evidencia persistida
 
@@ -21,7 +21,7 @@ El perfil de `patients` o `supervisors` conserva internamente:
   "legal_acceptance": {
     "uid": "firebase_uid",
     "role": "patient",
-    "privacy_notice_version": "2026-08-01",
+    "privacy_notice_version": "2026-10-30",
     "accepted_at": "timestamp ISO-8601",
     "source": "android",
     "explicit_acceptance": true,
@@ -32,6 +32,25 @@ El perfil de `patients` o `supervisors` conserva internamente:
 
 No se almacena el texto completo del aviso. La fecha `accepted_at` se genera en
 el servidor; Android no puede proporcionarla ni modificarla durante el registro.
+
+Para pacientes nuevos, el perfil conserva por separado:
+
+```json
+{
+  "sensitive_data_consent": {
+    "uid": "firebase_uid",
+    "version": "2026-10-27",
+    "accepted_at": "timestamp ISO-8601",
+    "source": "android",
+    "explicit_consent": true,
+    "status": "active",
+    "scope": "self_tracking_sensitive_data"
+  }
+}
+```
+
+Este bloque no concede supervisión, no sustituye la lectura del aviso y no
+equivale al permiso Android de notificaciones.
 
 La existencia de esta evidencia no demuestra por sí sola que la interfaz haya
 mostrado el aviso completo antes de solicitar datos. Esa comprobación requiere el
@@ -52,11 +71,16 @@ de reaceptación; no se infiere ni fabrica aceptación retroactiva.
 
 Cuando cambie materialmente el aviso:
 
-1. publicar primero el nuevo texto en Android;
-2. actualizar `PRIVACY_NOTICE_VERSION` en el entorno correspondiente;
+1. publicar primero un APK que incluya el texto, la versión y los campos de
+   registro nuevos;
+2. actualizar `PRIVACY_NOTICE_VERSION` en el entorno correspondiente; cambiar
+   `SENSITIVE_DATA_CONSENT_VERSION` solamente si también cambió ese
+   consentimiento separado;
 3. desplegar coordinadamente backend y Android;
-4. implementar un flujo autenticado de reaceptación antes de bloquear cuentas
-   existentes, porque ese endpoint no forma parte de este cambio mínimo.
+4. las cuentas existentes confirman la lectura nueva mediante
+   `POST /legal/privacy-notice/read`; la aceptación legal anterior se conserva;
+5. no habilitar cuentas existentes para datos sensibles sin definir su flujo
+   de consentimiento separado.
 
 ## Rollback
 

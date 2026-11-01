@@ -124,6 +124,54 @@ class AuthResponseContractTest extends TestCase
         $this->assertSame('Paciente anónimo', $profile['safe_display_name']);
     }
 
+    public function test_consent_summary_only_treats_active_or_legacy_unstated_status_as_active(): void
+    {
+        $active = $this->invoke('isActiveConsentForSummary', [[
+            'explicit_consent' => true,
+            'status' => 'active',
+            'revoked_at' => null,
+        ]]);
+        $legacyActive = $this->invoke('isActiveConsentForSummary', [[
+            'explicit_consent' => true,
+            'revoked_at' => null,
+        ]]);
+        $paused = $this->invoke('isActiveConsentForSummary', [[
+            'explicit_consent' => true,
+            'status' => 'paused',
+            'revoked_at' => null,
+        ]]);
+        $revoked = $this->invoke('isActiveConsentForSummary', [[
+            'explicit_consent' => true,
+            'status' => 'revoked',
+            'revoked_at' => '2026-10-26T10:00:00-06:00',
+        ]]);
+
+        $this->assertTrue($active);
+        $this->assertTrue($legacyActive);
+        $this->assertFalse($paused);
+        $this->assertFalse($revoked);
+    }
+
+    public function test_current_privacy_read_confirmation_is_preserved_without_rewriting_it(): void
+    {
+        $profile = [
+            'uid' => 'patient-privacy-current',
+            'privacy_notice_read' => [
+                'privacy_notice_version' => '2026-10-30',
+                'confirmed_at' => '2026-10-20T12:00:00-06:00',
+                'status' => 'confirmed',
+            ],
+        ];
+
+        $result = $this->invoke('ensurePrivacyNoticeReadPending', [
+            'patient-privacy-current',
+            'patient',
+            $profile,
+        ]);
+
+        $this->assertSame($profile, $result);
+    }
+
     private function invoke(string $method, array $arguments): mixed
     {
         $reflection = new ReflectionClass(AuthController::class);

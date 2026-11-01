@@ -75,8 +75,11 @@ class FirebaseRealSmokeTest extends TestCase
             'password' => $password,
             'full_name' => 'Smoke Patient',
             'role' => 'patient',
+            'age' => 20,
             'privacy_notice_accepted' => true,
             'privacy_notice_version' => config('legal.privacy_notice_version'),
+            'sensitive_data_consent_accepted' => true,
+            'sensitive_data_consent_version' => config('legal.sensitive_data_consent_version'),
         ])->assertCreated();
         $this->record('POST /auth/register patient', $patientRegistration);
         $patientUid = $patientRegistration->json('auth.uid');

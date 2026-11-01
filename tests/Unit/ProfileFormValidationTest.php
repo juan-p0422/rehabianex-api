@@ -226,6 +226,32 @@ class ProfileFormValidationTest extends TestCase
         $this->assertSame('449-123-4567', $profile['phone']);
     }
 
+    public function test_unmodified_legacy_phone_can_be_omitted_when_updating_another_field(): void
+    {
+        $controller = $this->controllerWithoutConstructor();
+
+        $this->invoke($controller, 'validatePayload', [
+            'patients',
+            ['full_name' => 'Nombre actualizado'],
+            false,
+        ]);
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_closed_beta_rejects_updating_patient_age_below_eighteen(): void
+    {
+        $controller = $this->controllerWithoutConstructor();
+
+        $this->expectException(ValidationException::class);
+
+        $this->invoke($controller, 'validatePayload', [
+            'patients',
+            ['age' => 17],
+            false,
+        ]);
+    }
+
     public function test_legacy_patient_notes_route_requires_answered_scales_but_accepts_zero(): void
     {
         $controller = $this->controllerWithoutConstructor();

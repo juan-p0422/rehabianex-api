@@ -50,7 +50,9 @@ class AuthController extends Controller
             'role' => ['required', Rule::in($this->publicRegistrationRoles())],
             'phone' => ['nullable', 'string', new MexicoPhone],
             'gender' => ['nullable', 'string', 'max:40'],
-            'age' => ['nullable', 'integer', 'min:1', 'max:120'],
+            'age' => ($data['role'] ?? null) === 'patient'
+                ? ['required', 'integer', 'min:'.config('legal.closed_beta_minimum_age', 18), 'max:120']
+                : ['nullable', 'integer', 'min:18', 'max:120'],
             'supervisor_type' => ['nullable', 'string', Rule::in(ProfileFormOptions::SUPERVISOR_TYPES)],
             'supervisor_type_other' => [
                 'nullable',
@@ -68,11 +70,27 @@ class AuthController extends Controller
                 'string',
                 Rule::in([$this->privacyNoticeVersion()]),
             ],
+            'sensitive_data_consent_accepted' => [
+                Rule::excludeIf(($data['role'] ?? null) !== 'patient'),
+                'required',
+                'accepted',
+            ],
+            'sensitive_data_consent_version' => [
+                Rule::excludeIf(($data['role'] ?? null) !== 'patient'),
+                'required',
+                'string',
+                Rule::in([$this->sensitiveDataConsentVersion()]),
+            ],
         ], [
             'email.max' => 'El correo no puede exceder 254 caracteres.',
             'password.max' => 'La contraseña excede la longitud permitida.',
             'supervisor_type.in' => 'El tipo de supervisor seleccionado no es válido.',
             'supervisor_type_other.required' => 'Describe el tipo de supervisor cuando seleccionas Otro.',
+            'age.required' => 'La edad es obligatoria para participar en la beta como paciente.',
+            'age.min' => 'La beta cerrada está disponible únicamente para personas mayores de 18 años.',
+            'sensitive_data_consent_accepted.required' => 'Confirma por separado el consentimiento para tratar datos sensibles de seguimiento.',
+            'sensitive_data_consent_accepted.accepted' => 'Debes aceptar expresamente el tratamiento de datos sensibles para usar el seguimiento.',
+            'sensitive_data_consent_version.in' => 'La versión del consentimiento de datos sensibles no está vigente.',
         ]);
 
         if ($validator->fails()) {
@@ -93,7 +111,7 @@ class AuthController extends Controller
             ]);
 
             $acceptedAt = Carbon::now()->toIso8601String();
-            $profile = $this->storeProfile($user->uid, $data['role'], [
+            $profileData = [
                 'email' => $user->email,
                 'full_name' => $data['full_name'],
                 'phone' => $data['phone'] ?? null,
@@ -114,7 +132,21 @@ class AuthController extends Controller
                     'explicit_acceptance' => true,
                     'status' => 'accepted',
                 ],
-            ]);
+            ];
+
+            if ($data['role'] === 'patient') {
+                $profileData['sensitive_data_consent'] = [
+                    'uid' => $user->uid,
+                    'version' => $data['sensitive_data_consent_version'],
+                    'accepted_at' => $acceptedAt,
+                    'source' => 'android',
+                    'explicit_consent' => true,
+                    'status' => 'active',
+                    'scope' => 'self_tracking_sensitive_data',
+                ];
+            }
+
+            $profile = $this->storeProfile($user->uid, $data['role'], $profileData);
 
             $tokenResponse = $this->firebasePasswordRequest([
                 'email' => $data['email'],
@@ -783,6 +815,7 @@ class AuthController extends Controller
             'updated_at' => null,
             'legal_acceptance' => null,
             'privacy_notice_read' => null,
+            'sensitive_data_consent' => null,
         ], $profile);
 
         $stable['role'] = $role;
@@ -806,6 +839,9 @@ class AuthController extends Controller
         );
         $stable['privacy_notice_read'] = $this->privacyNoticeReadForResponse(
             $profile['privacy_notice_read'] ?? null
+        );
+        $stable['sensitive_data_consent'] = $this->sensitiveDataConsentForResponse(
+            $profile['sensitive_data_consent'] ?? null
         );
 
         return $stable;
@@ -844,6 +880,23 @@ class AuthController extends Controller
                 $this->privacyNoticeVersion(),
                 (string) $confirmation['privacy_notice_version']
             ),
+        ];
+    }
+
+    private function sensitiveDataConsentForResponse(mixed $consent): ?array
+    {
+        if (! is_array($consent)
+            || ($consent['explicit_consent'] ?? false) !== true
+            || ($consent['status'] ?? null) !== 'active'
+            || empty($consent['version'])
+            || empty($consent['accepted_at'])) {
+            return null;
+        }
+
+        return [
+            'version' => (string) $consent['version'],
+            'accepted_at' => (string) $consent['accepted_at'],
+            'status' => 'active',
         ];
     }
 
@@ -886,6 +939,11 @@ class AuthController extends Controller
         return (string) config('legal.privacy_notice_version', '2026-10-30');
     }
 
+    private function sensitiveDataConsentVersion(): string
+    {
+        return (string) config('legal.sensitive_data_consent_version', '2026-10-27');
+    }
+
     private function publicRegistrationRoles(): array
     {
         return ['patient', 'supervisor'];
@@ -923,8 +981,7 @@ class AuthController extends Controller
 
             $consent = $document->data();
 
-            if (($consent['explicit_consent'] ?? false) !== true
-                || ! empty($consent['revoked_at'])) {
+            if (! $this->isActiveConsentForSummary($consent)) {
                 continue;
             }
 
@@ -951,6 +1008,13 @@ class AuthController extends Controller
             'supervisor_uids' => array_values(array_unique($supervisorUids)),
             'scopes' => array_values(array_unique($scopes)),
         ];
+    }
+
+    private function isActiveConsentForSummary(array $consent): bool
+    {
+        return ($consent['explicit_consent'] ?? false) === true
+            && in_array($consent['status'] ?? null, ['active', null], true)
+            && empty($consent['revoked_at']);
     }
 
     private function payload(Request $request): array

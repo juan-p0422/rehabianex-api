@@ -21,9 +21,12 @@ class AuthRegistrationFormValidationTest extends TestCase
                 'password' => 'SyntheticPassword123!',
                 'full_name' => '   ',
                 'role' => 'patient',
+                'age' => 20,
                 'phone' => '+14155552671',
                 'privacy_notice_accepted' => true,
-                'privacy_notice_version' => '2026-10-18',
+                'privacy_notice_version' => '2026-10-30',
+                'sensitive_data_consent_accepted' => true,
+                'sensitive_data_consent_version' => '2026-10-27',
             ],
         ));
         $errors = $response->getData(true)['errors'];
@@ -45,16 +48,41 @@ class AuthRegistrationFormValidationTest extends TestCase
                 'role' => 'supervisor',
                 'supervisor_type' => 'other',
                 'privacy_notice_accepted' => true,
-                'privacy_notice_version' => '2026-10-18',
+                'privacy_notice_version' => '2026-10-30',
             ],
         ));
 
         $this->assertSame(422, $response->getStatusCode());
         $this->assertArrayHasKey('supervisor_type_other', $response->getData(true)['errors']);
+        $this->assertArrayNotHasKey('sensitive_data_consent_accepted', $response->getData(true)['errors']);
+        $this->assertArrayNotHasKey('sensitive_data_consent_version', $response->getData(true)['errors']);
         $this->assertSame(
             'Describe el tipo de supervisor cuando seleccionas Otro.',
             $response->getData(true)['errors']['supervisor_type_other'][0]
         );
+    }
+
+    public function test_patient_registration_requires_adult_age_and_separate_sensitive_data_consent(): void
+    {
+        $response = $this->controller()->register(Request::create(
+            '/api/auth/register',
+            'POST',
+            [
+                'email' => 'adult-gate@example.test',
+                'password' => 'SyntheticPassword123!',
+                'full_name' => 'Paciente Sintético',
+                'role' => 'patient',
+                'age' => 17,
+                'privacy_notice_accepted' => true,
+                'privacy_notice_version' => '2026-10-30',
+            ],
+        ));
+
+        $this->assertSame(422, $response->getStatusCode());
+        $errors = $response->getData(true)['errors'];
+        $this->assertArrayHasKey('age', $errors);
+        $this->assertArrayHasKey('sensitive_data_consent_accepted', $errors);
+        $this->assertArrayHasKey('sensitive_data_consent_version', $errors);
     }
 
     private function controller(): AuthController
