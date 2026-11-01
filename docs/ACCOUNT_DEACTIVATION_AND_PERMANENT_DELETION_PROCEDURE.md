@@ -62,6 +62,7 @@ El mecanismo final de verificación y el plazo de respuesta deben ser aprobados 
 ## Fallos parciales y conservación
 
 - Si el perfil quedó bloqueado y Firebase o FCM falló, se mantiene el bloqueo y se marca `manual_required`.
+- Una ejecución concurrente que ya había superado autenticación reutiliza el `request_id` original y reintenta las operaciones idempotentes de vínculos, FCM y Firebase Auth; no crea otra solicitud ni retira el bloqueo de sincronización.
 - Si no pudo crearse atómicamente la solicitud y el bloqueo, el endpoint responde error y no afirma éxito.
 - No se promete borrado inmediato de respaldos, logs de seguridad o datos procesados por proveedores.
 - No se fija un plazo hasta que el responsable lo apruebe y lo relacione con el procedimiento real.

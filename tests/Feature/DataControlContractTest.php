@@ -250,6 +250,37 @@ class DataControlContractTest extends TestCase
         $this->assertSame('manual_required', $result['cleanup_status']['identity']);
     }
 
+    public function test_repeated_deactivation_reuses_request_and_retries_partial_cleanup(): void
+    {
+        $database = new DataControlFakeDatabase([
+            'patients' => ['patient-1' => ['uid' => 'patient-1']],
+        ]);
+        $fcm = Mockery::mock(FcmTokenRepository::class);
+        $fcm->shouldReceive('revokeToken')->twice()->with('patient-1')->andReturn(1);
+        $auth = Mockery::mock();
+        $auth->shouldReceive('revokeRefreshTokens')
+            ->once()
+            ->with('patient-1')
+            ->andThrow(new \RuntimeException('synthetic first failure'));
+        $auth->shouldReceive('revokeRefreshTokens')->once()->with('patient-1');
+        $auth->shouldReceive('updateUser')->once()->with('patient-1', ['disabled' => true]);
+        $service = $this->service($database, $fcm, $auth);
+        $request = $this->authenticatedRequest('patient-1', 'patient', ['uid' => 'patient-1']);
+
+        $first = $service->requestAccountDeactivation($request);
+        $second = $service->requestAccountDeactivation($request);
+
+        $this->assertTrue($first['manual_attention_required']);
+        $this->assertFalse($second['manual_attention_required']);
+        $this->assertSame($first['request']['request_id'], $second['request']['request_id']);
+        $this->assertCount(1, $database->documents['account_deletion_requests']);
+        $this->assertSame('completed', $second['cleanup_status']['identity']);
+        $this->assertSame('completed', $second['cleanup_status']['fcm']);
+        $this->assertSame('completed', $second['cleanup_status']['relationships']);
+        $requestDocument = array_values($database->documents['account_deletion_requests'])[0];
+        $this->assertFalse($requestDocument['manual_attention_required']);
+    }
+
     public function test_deactivation_revokes_relationships_and_cancels_pending_requests(): void
     {
         $database = new DataControlFakeDatabase([

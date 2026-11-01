@@ -351,6 +351,15 @@ del autor y este control no autoriza la beta. También son obligatorios
 de la aceptación legal, la confirmación de lectura y el consentimiento de
 supervisión. Para `supervisor` esos dos campos se excluyen y no son requisito.
 
+Si falta o se rechaza el consentimiento sensible del paciente, la respuesta es
+`422` con el sobre de error habitual y las claves
+`errors.sensitive_data_consent_accepted` y/o
+`errors.sensitive_data_consent_version`. Android debe conservar el formulario y
+mostrar el error del campo; no debe convertir la aceptación legal, la lectura
+del aviso, el consentimiento de supervisión ni un valor anterior en esta
+aceptación. Las cuentas existentes sin evidencia se mantienen sin ella: el
+backend no la inventa durante login, reapertura o confirmación de lectura.
+
 Opcionales según el rol: `phone`, `gender`, `age` para supervisor,
 `supervisor_type` y
 `supervisor_type_other`. El alcance telefónico es México: `phone` acepta 10

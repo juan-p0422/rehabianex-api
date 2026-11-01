@@ -312,7 +312,19 @@ class DataControlService
         });
 
         if ($result['created'] === false) {
-            return $this->deletionResponse($result, true, $retentionNotice);
+            $existingRequestId = trim((string) ($result['request_id'] ?? ''));
+
+            if ($existingRequestId === '') {
+                return $this->deletionResponse($result, true, $retentionNotice);
+            }
+
+            // A concurrent request may have passed authentication immediately
+            // before the profile was blocked. Reuse the original request and
+            // retry only idempotent cleanup; never create a second request or
+            // unblock synchronization.
+            $requestReference = $this->db
+                ->collection('account_deletion_requests')
+                ->document($existingRequestId);
         }
 
         $manualAttentionRequired = false;
