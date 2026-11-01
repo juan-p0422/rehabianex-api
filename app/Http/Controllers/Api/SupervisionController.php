@@ -31,7 +31,11 @@ class SupervisionController extends Controller
 
     public function resolveSupervisor(Request $request)
     {
-        $validator = Validator::make($request->query(), [
+        $input = $request->isMethod('post')
+            ? ($request->json()->all() ?: $request->request->all())
+            : $request->query();
+
+        $validator = Validator::make($input, [
             'code' => ['required', 'string', 'regex:/^RA-[A-Fa-f0-9]{8}$/'],
         ], [
             'code.required' => 'Debes indicar el codigo del supervisor.',
@@ -73,7 +77,12 @@ class SupervisionController extends Controller
             abort(404, 'Supervisor no disponible.');
         }
 
-        return response()->json($this->resolvedSupervisorResponse($uid, $snapshot->data()));
+        return response()
+            ->json($this->resolvedSupervisorResponse($uid, $snapshot->data()))
+            ->withHeaders([
+                'Cache-Control' => 'private, no-store, max-age=0',
+                'Pragma' => 'no-cache',
+            ]);
     }
 
     public function respond(Request $request, string $id)

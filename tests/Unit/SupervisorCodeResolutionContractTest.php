@@ -72,4 +72,26 @@ class SupervisorCodeResolutionContractTest extends TestCase
             $payload['errors']['code'][0]
         );
     }
+
+    public function test_post_reads_code_from_json_body_and_does_not_require_query_parameters(): void
+    {
+        $reflection = new ReflectionClass(SupervisionController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $request = Request::create(
+            '/api/supervisors/resolve',
+            'POST',
+            [],
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json'],
+            json_encode(['code' => 'INVALID'], JSON_THROW_ON_ERROR)
+        );
+
+        $response = $controller->resolveSupervisor($request);
+        $payload = $response->getData(true);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertArrayHasKey('code', $payload['errors']);
+        $this->assertSame([], $request->query->all());
+    }
 }

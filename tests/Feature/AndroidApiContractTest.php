@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\AuthenticateFirebase;
+use App\Http\Middleware\RequirePrivacyNoticeRead;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route as RouteFacade;
@@ -26,6 +29,7 @@ class AndroidApiContractTest extends TestCase
             'data control summary' => ['GET', 'api/data-control/summary'],
             'data export' => ['GET', 'api/data-control/export'],
             'account deletion request' => ['POST', 'api/data-control/account-deletion-requests'],
+            'account deactivation request' => ['POST', 'api/data-control/account-deactivation-requests'],
             'update patient' => ['PATCH', 'api/patients/{id}'],
             'show patient' => ['GET', 'api/patients/{id}'],
             'list patient notes' => ['GET', 'api/patients/{id}/notes'],
@@ -42,7 +46,8 @@ class AndroidApiContractTest extends TestCase
                 'POST',
                 'api/supervisors/{supervisor_uid}/patients/{patient_uid}/unlink',
             ],
-            'resolve supervisor code' => ['GET', 'api/supervisors/resolve'],
+            'resolve supervisor code legacy' => ['GET', 'api/supervisors/resolve'],
+            'resolve supervisor code without url disclosure' => ['POST', 'api/supervisors/resolve'],
             'list local resources' => ['GET', 'api/local-resources'],
             'list agenda events' => ['GET', 'api/agenda-events'],
             'create agenda event' => ['POST', 'api/agenda-events'],
@@ -131,6 +136,52 @@ class AndroidApiContractTest extends TestCase
         $this->assertSame(60, $first->decaySeconds);
     }
 
+    public function test_supervisor_resolution_post_is_rate_limited_by_uid_and_ip(): void
+    {
+        $this->assertRouteUsesMiddleware(
+            'POST',
+            'api/supervisors/resolve',
+            ['api', 'firebase.auth', 'throttle:supervisor-resolve']
+        );
+
+        $limiter = RateLimiter::limiter('supervisor-resolve');
+        $request = Request::create('/api/supervisors/resolve', 'POST', server: [
+            'REMOTE_ADDR' => '192.0.2.10',
+        ]);
+        $request->attributes->set('firebase_uid', 'patient-one');
+        $limits = $limiter($request);
+
+        $this->assertCount(2, $limits);
+        $this->assertSame('firebase:patient-one', $limits[0]->key);
+        $this->assertSame(20, $limits[0]->maxAttempts);
+        $this->assertSame('ip:192.0.2.10', $limits[1]->key);
+        $this->assertSame(60, $limits[1]->maxAttempts);
+    }
+
+    public function test_authentication_and_privacy_run_before_uid_rate_limits(): void
+    {
+        $route = $this->findRoute('POST', 'api/ai/supervisor-chat');
+        $this->assertNotNull($route);
+
+        $middleware = app('router')->gatherRouteMiddleware($route);
+        $authIndex = array_search(AuthenticateFirebase::class, $middleware, true);
+        $privacyIndex = array_search(RequirePrivacyNoticeRead::class, $middleware, true);
+        $throttleIndex = null;
+
+        foreach ($middleware as $index => $item) {
+            if (str_starts_with($item, ThrottleRequests::class.':')) {
+                $throttleIndex = $index;
+                break;
+            }
+        }
+
+        $this->assertIsInt($authIndex);
+        $this->assertIsInt($privacyIndex);
+        $this->assertIsInt($throttleIndex);
+        $this->assertLessThan($privacyIndex, $authIndex);
+        $this->assertLessThan($throttleIndex, $privacyIndex);
+    }
+
     public function test_email_sync_is_authenticated_and_rate_limited(): void
     {
         $this->assertRouteUsesMiddleware(
@@ -157,6 +208,30 @@ class AndroidApiContractTest extends TestCase
             'api/data-control/account-deletion-requests',
             ['api', 'firebase.auth', 'throttle:3,1']
         );
+        $this->assertRouteUsesMiddleware(
+            'POST',
+            'api/data-control/account-deactivation-requests',
+            ['api', 'firebase.auth', 'throttle:3,1']
+        );
+    }
+
+    public function test_privacy_gate_can_be_completed_without_a_428_loop(): void
+    {
+        $show = $this->findRoute('GET', 'api/legal/privacy-notice');
+        $confirm = $this->findRoute('POST', 'api/legal/privacy-notice/read');
+        $me = $this->findRoute('GET', 'api/auth/me');
+        $export = $this->findRoute('GET', 'api/data-control/export');
+
+        $this->assertNotNull($show);
+        $this->assertNotNull($confirm);
+        $this->assertNotNull($me);
+        $this->assertNotNull($export);
+
+        $this->assertNotContains('privacy.notice.read', $show->gatherMiddleware());
+        $this->assertNotContains('privacy.notice.read', $confirm->gatherMiddleware());
+        $this->assertNotContains('privacy.notice.read', $me->gatherMiddleware());
+        $this->assertContains('firebase.auth', $confirm->gatherMiddleware());
+        $this->assertContains('privacy.notice.read', $export->gatherMiddleware());
     }
 
     private function findRoute(string $method, string $uri): ?Route

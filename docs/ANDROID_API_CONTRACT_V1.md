@@ -333,7 +333,9 @@ servidor mediante `php artisan rehabianex:create-admin`.
   "age": 29,
   "supervisor_type": null,
   "privacy_notice_accepted": true,
-  "privacy_notice_version": "2026-08-01"
+  "privacy_notice_version": "2026-10-30",
+  "sensitive_data_consent_accepted": true,
+  "sensitive_data_consent_version": "2026-10-27"
 }
 ```
 
@@ -341,7 +343,16 @@ Obligatorios: `email`, `password` (mínimo 6 caracteres), `full_name`, `role`,
 `privacy_notice_accepted=true` y `privacy_notice_version` con la versión vigente.
 `role` admite `patient` o `supervisor`.
 
-Opcionales: `phone`, `gender`, `age`, `supervisor_type` y
+Para `patient`, `age` es obligatorio y debe estar entre 18 y 120 durante la
+preparación técnica. La condición 18+ sigue pendiente de confirmación expresa
+del autor y este control no autoriza la beta. También son obligatorios
+`sensitive_data_consent_accepted=true` y
+`sensitive_data_consent_version=2026-10-27`. Esta evidencia es independiente
+de la aceptación legal, la confirmación de lectura y el consentimiento de
+supervisión. Para `supervisor` esos dos campos se excluyen y no son requisito.
+
+Opcionales según el rol: `phone`, `gender`, `age` para supervisor,
+`supervisor_type` y
 `supervisor_type_other`. El alcance telefónico es México: `phone` acepta 10
 dígitos nacionales con separadores comunes o el formato internacional `+52`, y
 se almacena como `+52` seguido de 10 dígitos. `supervisor_type=other` exige
@@ -381,9 +392,14 @@ se almacena como `+52` seguido de 10 dígitos. `supervisor_type=other` exige
     "sobriety_start_date": null,
     "primary_risks": [],
     "legal_acceptance": {
-      "privacy_notice_version": "2026-08-01",
-      "accepted_at": "2026-08-03T12:00:00-06:00",
+      "privacy_notice_version": "2026-10-30",
+      "accepted_at": "2026-10-30T12:00:00-06:00",
       "status": "accepted"
+    },
+    "sensitive_data_consent": {
+      "version": "2026-10-27",
+      "accepted_at": "2026-10-27T12:00:00-06:00",
+      "status": "active"
     }
   },
   "tokens": {
@@ -399,10 +415,10 @@ se almacena como `+52` seguido de 10 dígitos. `supervisor_type=other` exige
 
 Errores: `422`, `429`, `500`, `502`.
 
-La falta de aceptación, un valor distinto de `true` o una versión diferente a
-la vigente producen `422`. La evidencia se almacena dentro del perfil, separada
-de `consents`, con `uid`, `role`, versión, fecha, `source=android` y
-`explicit_acceptance=true`. No se almacena el texto completo del aviso.
+La falta de aceptación, un valor distinto de `true`, edad menor a 18 para
+paciente o una versión diferente a la vigente producen `422`. Las evidencias
+legal y de datos sensibles se almacenan en bloques distintos del perfil y
+permanecen separadas de `consents`. No se almacena el texto completo del aviso.
 
 Envolvente: respuesta especializada de autenticación.
 
@@ -1608,7 +1624,19 @@ Android producción: **sí**.
 
 ## 16.1 Resolver código corto de supervisor
 
-**Método y ruta:** `GET /supervisors/resolve?code=RA-XXXXXXXX`
+**Método y ruta vigente:** `POST /supervisors/resolve`
+
+```json
+{
+  "code": "RA-XXXXXXXX"
+}
+```
+
+El código se envía en el cuerpo JSON para evitar que aparezca en URLs o logs de
+proxy. La respuesta usa `Cache-Control: private, no-store`. La ruta anterior
+`GET /supervisors/resolve?code=RA-XXXXXXXX` permanece autenticada y limitada
+solo durante una ventana de compatibilidad; está obsoleta y Android debe dejar
+de invocarla antes de retirarla.
 
 **Acceso:** protegido. Límite: 20 solicitudes por minuto.
 
@@ -2669,20 +2697,30 @@ El contrato completo y su inventario están en
 `docs/STAGE8_DATA_CONTROL_CONTRACT.md`.
 
 - `GET /data-control/summary`: inventario, campos rectificables, acciones y
-  límites de retención; `20` solicitudes por minuto.
-- `GET /data-control/export`: adjunto JSON UTF-8 del titular, privado y no
-  cacheable; `3` solicitudes por minuto.
-- `POST /data-control/account-deletion-requests`: requiere ID token con
-  `auth_time` no mayor a 300 segundos, confirmación exacta y aceptación del
-  aviso de retención; `3` solicitudes por minuto.
+  límites de retención; `20` solicitudes por minuto. Incluye
+  `self_service_export_available=false` para la beta cerrada y el canal manual.
+- `GET /data-control/export`: ruta legacy autenticada y limitada a `3`
+  solicitudes por minuto. Con la exportación deshabilitada responde `410` y
+  `code=self_service_export_retired`; no genera archivo ni forma parte de la beta.
+- `POST /data-control/account-deactivation-requests`: requiere ID token con
+  `auth_time` no mayor a 300 segundos, confirmación exacta
+  `DESACTIVAR MI CUENTA` y aceptación del aviso de retención; `3` solicitudes
+  por minuto. Devuelve `202` con `deactivated_at` y `cleanup_status`.
+- `POST /data-control/account-deletion-requests`: alias legacy autenticado;
+  ejecuta el mismo borrado suave y no significa purga física.
 
-La respuesta 202 de eliminación significa que acceso y sincronización quedaron
+La respuesta 202 de desactivación significa que acceso y sincronización quedaron
 bloqueados y que existe una solicitud para revisión manual; no certifica purga
 física de respaldos o proveedores. Después de recibirla Android cancela trabajo
 pendiente del UID, purga sus datos locales y cierra la sesión. Los perfiles y el
 correo no usan cola offline. Una cuenta marcada en eliminación recibe `423` en
 accesos y sincronizaciones; tokens inválidos o una identidad Firebase ya
 deshabilitada reciben `401`.
+
+La eliminación definitiva se solicita manualmente a
+`rehabianex@gmail.com`, asunto `Solicitud de eliminación de cuenta RehabiAnex`.
+Abrir el cliente de correo no confirma el envío y no existe un endpoint de
+envío automático.
 
 ## Reglas adaptativas experimentales (Etapa 9)
 

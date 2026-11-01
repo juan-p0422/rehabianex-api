@@ -33,3 +33,4 @@ storage/app/firebase/firebase_credentials_from_env.json
 /storage/app/firebase/
 /storage/app/firebase/*.json
 /storage/logs/*.log
+/tmp/

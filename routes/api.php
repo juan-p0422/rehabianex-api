@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/health', fn () => response()->json([
     'ok' => true,
     'status' => 'healthy',
+    'release' => (string) config('app.release', 'unidentified'),
 ]))->middleware('throttle:60,1');
 
 Route::get('/legal/privacy-notice', [LegalNoticeController::class, 'show'])
@@ -49,6 +50,8 @@ Route::middleware('firebase.auth')->group(function () {
             ->middleware('throttle:3,1');
         Route::post('/data-control/account-deletion-requests', [DataControlController::class, 'requestAccountDeletion'])
             ->middleware('throttle:3,1');
+        Route::post('/data-control/account-deactivation-requests', [DataControlController::class, 'requestAccountDeactivation'])
+            ->middleware('throttle:3,1');
 
         Route::post('/notifications/fcm-token', [FcmTokenController::class, 'register'])
             ->middleware('throttle:10,1');
@@ -66,8 +69,11 @@ Route::middleware('firebase.auth')->group(function () {
             '/supervisors/{supervisor_uid}/patients/{patient_uid}/unlink',
             [SupervisionController::class, 'unlink']
         );
+        Route::post('/supervisors/resolve', [SupervisionController::class, 'resolveSupervisor'])
+            ->middleware('throttle:supervisor-resolve');
+        // Compatibilidad temporal: clientes anteriores enviaban el código en la URL.
         Route::get('/supervisors/resolve', [SupervisionController::class, 'resolveSupervisor'])
-            ->middleware('throttle:20,1');
+            ->middleware('throttle:supervisor-resolve');
         Route::get('/patients/{id}/notes', [PatientController::class, 'notes']);
         Route::post('/patients/{id}/notes', [PatientController::class, 'storeNote']);
 

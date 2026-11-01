@@ -55,6 +55,12 @@ return [
     'url' => env('APP_URL', 'http://localhost'),
 
     /*
+    | Identificador no secreto de la revisión desplegada. Render proporciona
+    | RENDER_GIT_COMMIT; otros entornos pueden definir APP_RELEASE.
+    */
+    'release' => env('RENDER_GIT_COMMIT', env('APP_RELEASE', 'unidentified')),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------

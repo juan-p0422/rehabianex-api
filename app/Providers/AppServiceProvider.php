@@ -37,5 +37,14 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(max(1, (int) config('ai.rate_limit_per_minute', 10)))
                 ->by($uid !== '' ? 'firebase:'.$uid : 'unauthenticated');
         });
+
+        RateLimiter::for('supervisor-resolve', function (Request $request): array {
+            $uid = trim((string) $request->attributes->get('firebase_uid'));
+
+            return [
+                Limit::perMinute(20)->by($uid !== '' ? 'firebase:'.$uid : 'unauthenticated'),
+                Limit::perMinute(60)->by('ip:'.$request->ip()),
+            ];
+        });
     }
 }

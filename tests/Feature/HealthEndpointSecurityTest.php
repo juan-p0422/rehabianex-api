@@ -9,12 +9,15 @@ class HealthEndpointSecurityTest extends TestCase
 {
     public function test_public_health_endpoint_exposes_only_safe_status(): void
     {
+        config(['app.release' => 'synthetic-release-abc123']);
+
         $this->getJson('/api/health')
             ->assertOk()
             ->assertHeaderMissing('X-Powered-By')
             ->assertExactJson([
                 'ok' => true,
                 'status' => 'healthy',
+                'release' => 'synthetic-release-abc123',
             ]);
     }
 
