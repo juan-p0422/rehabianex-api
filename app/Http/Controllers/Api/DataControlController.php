@@ -25,6 +25,15 @@ class DataControlController extends Controller
 
     public function export(Request $request)
     {
+        if (! (bool) config('data_control.self_service_export_enabled', false)) {
+            return response()->json([
+                'ok' => false,
+                'code' => 'self_service_export_retired',
+                'message' => 'La exportación de autoservicio no forma parte de la beta cerrada. Solicita atención por el canal indicado en Control de datos.',
+                'errors' => (object) [],
+            ], 410);
+        }
+
         try {
             $export = $this->dataControl->export($request);
             $json = json_encode(
@@ -49,14 +58,25 @@ class DataControlController extends Controller
 
     public function requestAccountDeletion(Request $request)
     {
+        return $this->requestAccountDeactivation($request, true);
+    }
+
+    public function requestAccountDeactivation(Request $request, bool $allowLegacyConfirmation = false)
+    {
         $data = $request->json()->all() ?: $request->all();
+        $confirmations = [(string) config('data_control.deactivation_confirmation')];
+
+        if ($allowLegacyConfirmation) {
+            $confirmations[] = (string) config('data_control.legacy_deletion_confirmation');
+        }
+
         $validator = Validator::make($data, [
             'scope' => ['required', 'in:account'],
             'confirmation' => [
                 'required',
                 'string',
                 'max:80',
-                'in:'.config('data_control.deletion_confirmation'),
+                'in:'.implode(',', array_unique($confirmations)),
             ],
             'acknowledge_retention_limits' => ['required', 'accepted'],
         ], [
@@ -86,10 +106,10 @@ class DataControlController extends Controller
         try {
             return response()->json([
                 'ok' => true,
-                ...$this->dataControl->requestAccountDeletion($request),
+                ...$this->dataControl->requestAccountDeactivation($request),
             ], 202);
         } catch (Throwable $e) {
-            Log::error('Account deletion request could not be initialized.', [
+            Log::error('Account deactivation request could not be initialized.', [
                 'exception' => get_class($e),
             ]);
 
@@ -98,7 +118,7 @@ class DataControlController extends Controller
             }
 
             return ApiErrorResponse::make(
-                'No se pudo bloquear la cuenta ni registrar la solicitud. No se aplicaron cambios parciales.',
+                'No se pudo desactivar la cuenta ni registrar la solicitud. No se aplicaron cambios parciales.',
                 500
             );
         }

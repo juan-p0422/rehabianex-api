@@ -82,47 +82,81 @@ class DataControlService
         $profile = (array) $request->attributes->get('firebase_profile', []);
         $rectification = $this->rectification($role);
         $automatedDeletion = in_array($role, ['patient', 'supervisor'], true);
+        $selfServiceExport = (bool) config('data_control.self_service_export_enabled', false);
+        $manualAttention = (array) config('data_control.manual_attention', []);
+        $permanentDeletion = (array) config('data_control.permanent_deletion_request', []);
+        $deactivationConfirmation = (string) config('data_control.deactivation_confirmation');
 
         return [
             'role' => $role,
             'account_role' => $role,
             'deletion_status' => $profile['data_deletion_status'] ?? 'none',
+            'self_service_export_available' => $selfServiceExport,
             'categories' => $this->summaryCategories($role),
             'inventory' => $this->inventory($role),
             'editable_fields' => $rectification['profile']['editable_fields'],
             'rectification_route' => $rectification['profile']['route'],
             'rectification' => $rectification,
+            'account_deactivation' => [
+                'automated' => $automatedDeletion,
+                'requires_recent_auth' => true,
+                'recent_auth_max_age_seconds' => max(60, (int) config('data_control.recent_auth_seconds', 300)),
+                'confirmation_phrase' => $deactivationConfirmation,
+                'result' => 'account_disabled_and_soft_deletion_requested',
+                'physical_purge_automatic' => false,
+            ],
+            // Alias de lectura para clientes que todavía consumen el nombre anterior.
             'account_deletion' => [
                 'automated' => $automatedDeletion,
                 'requires_recent_auth' => true,
                 'recent_auth_max_age_seconds' => max(60, (int) config('data_control.recent_auth_seconds', 300)),
-                'confirmation_phrase' => (string) config('data_control.deletion_confirmation'),
+                'confirmation_phrase' => $deactivationConfirmation,
                 'physical_purge_automatic' => false,
             ],
             'actions' => [
-                'export' => [
-                    'method' => 'GET',
-                    'route' => '/api/data-control/export',
-                    'format' => 'json_utf8',
-                    'temporary_private_file_required' => true,
-                ],
                 'delete_records' => $this->recordDeletionActions($role),
-                'request_account_deletion' => [
+                'deactivate_and_request_deletion' => [
                     'available' => $automatedDeletion,
                     'method' => 'POST',
-                    'route' => '/api/data-control/account-deletion-requests',
+                    'route' => '/api/data-control/account-deactivation-requests',
                     'requires_recent_authentication' => true,
+                    'requires_online_confirmation' => true,
+                    'confirmation_phrase' => $deactivationConfirmation,
                     'physical_purge_automatic' => false,
+                ],
+                'request_permanent_deletion' => [
+                    'available' => true,
+                    'method' => 'external_contact',
+                    'channel' => (string) ($permanentDeletion['channel'] ?? 'email'),
+                    'address' => (string) ($permanentDeletion['email'] ?? ''),
+                    'subject' => (string) ($permanentDeletion['subject'] ?? ''),
+                    'automatic_submission' => false,
+                    'opening_mail_client_means_sent' => false,
+                    'identity_verification_required' => true,
                 ],
                 'manual_attention' => [
                     'required_for' => $role === 'admin'
                         ? ['account_deletion', 'retention_questions', 'legacy_data']
                         : ['retention_questions', 'legacy_data', 'failed_partial_operations'],
-                    'contact_channel' => 'institutional_support_channel',
+                    'contact_channel' => (string) ($manualAttention['channel'] ?? 'phone'),
+                    'contact_value' => (string) ($manualAttention['phone'] ?? ''),
+                    'responsible_location' => (string) ($manualAttention['location'] ?? ''),
+                ],
+            ],
+            'compatibility' => [
+                'legacy_export_route' => [
+                    'method' => 'GET',
+                    'route' => '/api/data-control/export',
+                    'status' => 410,
+                    'code' => 'self_service_export_retired',
+                ],
+                'legacy_deactivation_route' => [
+                    'method' => 'POST',
+                    'route' => '/api/data-control/account-deletion-requests',
                 ],
             ],
             'retention_notice' => (string) config('data_control.retention_notice'),
-            'manual_request_notice' => 'La eliminación definitiva, los datos legacy y las dudas de retención requieren seguimiento por el canal institucional de soporte.',
+            'manual_request_notice' => 'La eliminación definitiva se solicita por el correo indicado. El acceso a datos, la rectificación no disponible, los datos legacy y las dudas de retención conservan el canal telefónico definido.',
         ];
     }
 
@@ -177,6 +211,11 @@ class DataControlService
 
     public function requestAccountDeletion(Request $request): array
     {
+        return $this->requestAccountDeactivation($request);
+    }
+
+    public function requestAccountDeactivation(Request $request): array
+    {
         $uid = (string) $request->attributes->get('firebase_uid');
         $role = (string) $request->attributes->get('firebase_role');
 
@@ -191,7 +230,7 @@ class DataControlService
             throw new HttpException(403, 'La cuenta no tiene un perfil compatible con este flujo.');
         }
 
-        $requestId = 'deletion_request_'.Str::uuid()->toString();
+        $requestId = 'deactivation_request_'.Str::uuid()->toString();
         $now = now('America/Mexico_City')->toIso8601String();
         $profileReference = $this->db->collection($profileCollection)->document($uid);
         $requestReference = $this->db->collection('account_deletion_requests')->document($requestId);
@@ -220,6 +259,9 @@ class DataControlService
                     'request_id' => (string) ($profile['data_deletion_request_id'] ?? ''),
                     'status' => (string) $profile['data_deletion_status'],
                     'requested_at' => $profile['deletion_requested_at'] ?? null,
+                    'deactivated_at' => $profile['deactivated_at']
+                        ?? $profile['deletion_requested_at']
+                        ?? null,
                 ];
             }
 
@@ -229,7 +271,9 @@ class DataControlService
                 'role' => $role,
                 'scope' => 'account',
                 'status' => 'pending_manual_review',
+                'request_type' => 'account_deactivation_and_soft_deletion',
                 'requested_at' => $now,
+                'deactivated_at' => $now,
                 'updated_at' => $now,
                 'sync_blocked_at' => $now,
                 'identity_lock_status' => 'pending',
@@ -238,19 +282,32 @@ class DataControlService
             ];
 
             $transaction->set($requestReference, $requestDocument);
-            $transaction->set($profileReference, [
+            $profileChanges = [
                 'data_deletion_status' => 'pending_manual_review',
                 'data_deletion_request_id' => $requestId,
                 'deletion_requested_at' => $now,
+                'deactivated_at' => $now,
+                'status_before_deactivation' => $profile['status'] ?? null,
+                'status' => 'disabled',
                 'sync_blocked_at' => $now,
                 'updated_at' => $now,
-            ], ['merge' => true]);
+            ];
+
+            if ($role === 'patient') {
+                $profileChanges['supervisor_uid'] = null;
+                $profileChanges['wants_supervision'] = false;
+                $profileChanges['supervision_status'] = 'inactive';
+                $profileChanges['supervision_ended_at'] = $now;
+            }
+
+            $transaction->set($profileReference, $profileChanges, ['merge' => true]);
 
             return [
                 'created' => true,
                 'request_id' => $requestId,
                 'status' => 'pending_manual_review',
                 'requested_at' => $now,
+                'deactivated_at' => $now,
             ];
         });
 
@@ -259,17 +316,35 @@ class DataControlService
         }
 
         $manualAttentionRequired = false;
+        $cleanupStatus = [
+            'remote_access' => 'blocked',
+            'identity' => 'pending',
+            'fcm' => 'pending',
+            'relationships' => 'pending',
+        ];
+
+        try {
+            $this->deactivateRelationships($uid, $role, $now);
+            $cleanupStatus['relationships'] = 'completed';
+        } catch (Throwable) {
+            $cleanupStatus['relationships'] = 'manual_required';
+            $manualAttentionRequired = true;
+        }
 
         try {
             $this->fcmTokens->revokeToken($uid);
+            $cleanupStatus['fcm'] = 'completed';
         } catch (Throwable) {
+            $cleanupStatus['fcm'] = 'manual_required';
             $manualAttentionRequired = true;
         }
 
         try {
             $this->auth->revokeRefreshTokens($uid);
             $this->auth->updateUser($uid, ['disabled' => true]);
+            $cleanupStatus['identity'] = 'completed';
         } catch (Throwable) {
+            $cleanupStatus['identity'] = 'manual_required';
             $manualAttentionRequired = true;
         }
 
@@ -277,13 +352,19 @@ class DataControlService
             $requestReference->set([
                 'identity_lock_status' => $manualAttentionRequired ? 'manual_required' : 'completed',
                 'manual_attention_required' => $manualAttentionRequired,
+                'cleanup_status' => $cleanupStatus,
                 'updated_at' => now('America/Mexico_City')->toIso8601String(),
             ], ['merge' => true]);
         } catch (Throwable) {
             $manualAttentionRequired = true;
         }
 
-        return $this->deletionResponse($result, $manualAttentionRequired, $retentionNotice);
+        return $this->deletionResponse(
+            $result,
+            $manualAttentionRequired,
+            $retentionNotice,
+            $cleanupStatus
+        );
     }
 
     private function inventory(string $role): array
@@ -334,14 +415,14 @@ class DataControlService
                 'code' => 'identity',
                 'label' => 'Identidad de la cuenta',
                 'location' => 'firebase_authentication',
-                'exported' => true,
+                'exported' => false,
                 'deletion_mode' => 'manual_account_process',
             ],
             [
                 'code' => 'profile',
                 'label' => 'Perfil propio',
                 'location' => 'firestore',
-                'exported' => true,
+                'exported' => false,
                 'deletion_mode' => 'manual_account_process',
             ],
         ];
@@ -351,7 +432,7 @@ class DataControlService
                 'code' => 'own_records',
                 'label' => 'Registros propios',
                 'location' => 'firestore_and_encrypted_room',
-                'exported' => true,
+                'exported' => false,
                 'deletion_mode' => 'record_soft_delete_or_manual_account_process',
             ];
         }
@@ -423,6 +504,66 @@ class DataControlService
         return [];
     }
 
+    private function deactivateRelationships(string $uid, string $role, string $now): void
+    {
+        if ($role === 'supervisor') {
+            $patients = $this->db->collection('patients')
+                ->where('supervisor_uid', '=', $uid)
+                ->documents();
+
+            foreach ($patients as $patient) {
+                if (! $patient->exists()) {
+                    continue;
+                }
+
+                $this->db->collection('patients')->document($patient->id())->set([
+                    'supervisor_uid' => null,
+                    'wants_supervision' => false,
+                    'supervision_status' => 'inactive',
+                    'supervision_ended_at' => $now,
+                    'updated_at' => $now,
+                ], ['merge' => true]);
+            }
+        }
+
+        $ownerField = $role === 'patient' ? 'patient_uid' : 'supervisor_uid';
+        $consents = $this->db->collection('consents')
+            ->where($ownerField, '=', $uid)
+            ->documents();
+
+        foreach ($consents as $consent) {
+            if (! $consent->exists()) {
+                continue;
+            }
+
+            $this->db->collection('consents')->document($consent->id())->set([
+                'explicit_consent' => false,
+                'status' => 'revoked',
+                'revoked_at' => $now,
+                'paused_at' => null,
+                'revocation_reason' => 'account_deactivation',
+                'updated_at' => $now,
+            ], ['merge' => true]);
+        }
+
+        $requests = $this->db->collection('supervision_requests')
+            ->where($ownerField, '=', $uid)
+            ->documents();
+
+        foreach ($requests as $request) {
+            if (! $request->exists() || ($request->data()['status'] ?? null) !== 'pending') {
+                continue;
+            }
+
+            $this->db->collection('supervision_requests')->document($request->id())->set([
+                'status' => 'cancelled',
+                'cancelled_at' => $now,
+                'cancellation_reason' => 'account_deactivation',
+                'updated_at' => $now,
+            ], ['merge' => true]);
+        }
+    }
+
     private function exportProfile(array $profile, string $role): array
     {
         $allowed = match ($role) {
@@ -481,16 +622,29 @@ class DataControlService
         return $items;
     }
 
-    private function deletionResponse(array $result, bool $manualAttention, string $retentionNotice): array
-    {
+    private function deletionResponse(
+        array $result,
+        bool $manualAttention,
+        string $retentionNotice,
+        array $cleanupStatus = [],
+    ): array {
+        $cleanupStatus += [
+            'remote_access' => 'blocked',
+            'identity' => $manualAttention ? 'manual_required' : 'completed',
+            'fcm' => $manualAttention ? 'manual_required' : 'completed',
+            'relationships' => $manualAttention ? 'manual_required' : 'completed',
+        ];
+
         return [
             'request' => [
                 'request_id' => $result['request_id'],
                 'status' => $result['status'],
                 'requested_at' => $result['requested_at'],
+                'deactivated_at' => $result['deactivated_at'] ?? $result['requested_at'],
             ],
             'sync_blocked' => true,
             'local_cleanup_required' => true,
+            'cleanup_status' => $cleanupStatus,
             'manual_attention_required' => $manualAttention,
             'retention_notice' => $retentionNotice,
         ];
