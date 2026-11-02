@@ -87,7 +87,7 @@ class AuthController extends Controller
             'supervisor_type.in' => 'El tipo de supervisor seleccionado no es válido.',
             'supervisor_type_other.required' => 'Describe el tipo de supervisor cuando seleccionas Otro.',
             'age.required' => 'La edad es obligatoria para participar en la beta como paciente.',
-            'age.min' => 'La beta cerrada está disponible únicamente para personas mayores de 18 años.',
+            'age.min' => 'La beta cerrada está disponible únicamente para personas de 18 años o más.',
             'sensitive_data_consent_accepted.required' => 'Confirma por separado el consentimiento para tratar datos sensibles de seguimiento.',
             'sensitive_data_consent_accepted.accepted' => 'Debes aceptar expresamente el tratamiento de datos sensibles para usar el seguimiento.',
             'sensitive_data_consent_version.in' => 'La versión del consentimiento de datos sensibles no está vigente.',

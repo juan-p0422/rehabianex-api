@@ -25,7 +25,7 @@ class PrivacyNoticeReadContractTest extends TestCase
             ->assertJsonPath('notice.contact_status', 'phone_confirmed')
             ->assertJsonPath('notice.permanent_deletion_contact_status', 'email_confirmed')
             ->assertJsonPath('notice.closed_beta_minimum_age', 18)
-            ->assertJsonPath('notice.closed_beta_age_policy_status', 'pending_author_confirmation')
+            ->assertJsonPath('notice.closed_beta_age_policy_status', 'confirmed_adults_only')
             ->assertJsonPath('notice.sensitive_data_consent_version', '2026-10-27')
             ->assertJsonPath('notice.sensitive_data_consent_separate', true)
             ->assertJsonPath('notice.pending_legal_fields.0', 'applicable_address')

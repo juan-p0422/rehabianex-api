@@ -41,7 +41,7 @@ class LegalNoticeController extends Controller
                 'closed_beta_minimum_age' => (int) config('legal.closed_beta_minimum_age', 18),
                 'closed_beta_age_policy_status' => (string) config(
                     'legal.closed_beta_age_policy_status',
-                    'pending_author_confirmation'
+                    'confirmed_adults_only'
                 ),
                 'sensitive_data_consent_separate' => true,
                 'sensitive_data_consent_version' => (string) config('legal.sensitive_data_consent_version'),

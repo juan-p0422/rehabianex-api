@@ -81,6 +81,10 @@ class AuthRegistrationFormValidationTest extends TestCase
         $this->assertSame(422, $response->getStatusCode());
         $errors = $response->getData(true)['errors'];
         $this->assertArrayHasKey('age', $errors);
+        $this->assertSame(
+            'La beta cerrada está disponible únicamente para personas de 18 años o más.',
+            $errors['age'][0]
+        );
         $this->assertArrayHasKey('sensitive_data_consent_accepted', $errors);
         $this->assertArrayHasKey('sensitive_data_consent_version', $errors);
     }

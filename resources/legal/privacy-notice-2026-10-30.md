@@ -12,7 +12,7 @@ Para solicitar específicamente la eliminación definitiva de una cuenta se habi
 
 ## Participantes de la beta
 
-Se ha propuesto que la primera beta cerrada se limite a personas de 18 años o más, pero el autor todavía debe confirmar expresamente esa condición antes de incorporar participantes reales. Como medida preventiva, el backend rechaza registros nuevos de pacientes menores de 18 años. Esta restricción técnica no autoriza por sí sola la beta ni sustituye el procedimiento de selección de participantes.
+La primera beta cerrada se limita a personas de 18 años o más. El backend rechaza registros nuevos de pacientes menores de 18 años. Esta restricción técnica no autoriza por sí sola la beta ni sustituye el procedimiento de selección de participantes.
 
 La participación de menores permanece fuera de alcance hasta que se definan el fundamento, la intervención de quienes ejerzan patria potestad o tutela, el papel de los supervisores y mecanismos de verificación adecuados. Un supervisor de la aplicación no se convierte automáticamente en representante legal.
 
