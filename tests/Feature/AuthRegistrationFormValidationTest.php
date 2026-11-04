@@ -24,7 +24,7 @@ class AuthRegistrationFormValidationTest extends TestCase
                 'age' => 20,
                 'phone' => '+14155552671',
                 'privacy_notice_accepted' => true,
-                'privacy_notice_version' => '2026-10-30',
+                'privacy_notice_version' => '2026-11-03',
                 'sensitive_data_consent_accepted' => true,
                 'sensitive_data_consent_version' => '2026-10-27',
             ],
@@ -48,7 +48,7 @@ class AuthRegistrationFormValidationTest extends TestCase
                 'role' => 'supervisor',
                 'supervisor_type' => 'other',
                 'privacy_notice_accepted' => true,
-                'privacy_notice_version' => '2026-10-30',
+                'privacy_notice_version' => '2026-11-03',
             ],
         ));
 
@@ -74,7 +74,7 @@ class AuthRegistrationFormValidationTest extends TestCase
                 'role' => 'patient',
                 'age' => 17,
                 'privacy_notice_accepted' => true,
-                'privacy_notice_version' => '2026-10-30',
+                'privacy_notice_version' => '2026-11-03',
             ],
         ));
 

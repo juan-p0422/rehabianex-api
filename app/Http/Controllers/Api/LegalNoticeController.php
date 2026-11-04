@@ -35,9 +35,9 @@ class LegalNoticeController extends Controller
                 'published_on' => (string) config('legal.privacy_notice_published_on'),
                 'content' => trim($content),
                 'responsible_status' => 'identified',
-                'contact_status' => 'phone_confirmed',
+                'contact_status' => 'phone_and_email_confirmed',
                 'permanent_deletion_contact_status' => 'email_confirmed',
-                'pending_legal_fields' => ['applicable_address'],
+                'pending_legal_fields' => [],
                 'closed_beta_minimum_age' => (int) config('legal.closed_beta_minimum_age', 18),
                 'closed_beta_age_policy_status' => (string) config(
                     'legal.closed_beta_age_policy_status',
@@ -119,7 +119,7 @@ class LegalNoticeController extends Controller
 
     private function version(): string
     {
-        return (string) config('legal.privacy_notice_version', '2026-10-30');
+        return (string) config('legal.privacy_notice_version', '2026-11-03');
     }
 
     private function profileCollection(string $role): ?string

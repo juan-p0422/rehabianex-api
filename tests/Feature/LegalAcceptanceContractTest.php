@@ -22,7 +22,7 @@ class LegalAcceptanceContractTest extends TestCase
             'uid' => 'admin-privacy-test',
             'role' => 'admin',
             'privacy_notice_read' => [
-                'privacy_notice_version' => '2026-10-30',
+                'privacy_notice_version' => '2026-11-03',
                 'confirmed_at' => '2026-10-19T10:00:00-06:00',
                 'status' => 'confirmed',
                 'uid' => 'admin-privacy-test',
@@ -30,7 +30,7 @@ class LegalAcceptanceContractTest extends TestCase
         ], 'admin');
 
         $this->assertSame([
-            'privacy_notice_version' => '2026-10-30',
+            'privacy_notice_version' => '2026-11-03',
             'confirmed_at' => '2026-10-19T10:00:00-06:00',
             'status' => 'confirmed',
             'is_current' => true,
@@ -79,7 +79,7 @@ class LegalAcceptanceContractTest extends TestCase
                 return $profile['uid'] === $user->uid
                     && $acceptance['uid'] === $user->uid
                     && $acceptance['role'] === 'patient'
-                    && $acceptance['privacy_notice_version'] === '2026-10-30'
+                    && $acceptance['privacy_notice_version'] === '2026-11-03'
                     && $acceptance['source'] === 'android'
                     && $acceptance['explicit_acceptance'] === true
                     && $acceptance['status'] === 'accepted'
@@ -114,12 +114,12 @@ class LegalAcceptanceContractTest extends TestCase
             'role' => 'patient',
             'age' => 20,
             'privacy_notice_accepted' => true,
-            'privacy_notice_version' => '2026-10-30',
+            'privacy_notice_version' => '2026-11-03',
             'sensitive_data_consent_accepted' => true,
             'sensitive_data_consent_version' => '2026-10-27',
         ])->assertCreated()
             ->assertJsonPath('ok', true)
-            ->assertJsonPath('profile.legal_acceptance.privacy_notice_version', '2026-10-30')
+            ->assertJsonPath('profile.legal_acceptance.privacy_notice_version', '2026-11-03')
             ->assertJsonPath('profile.legal_acceptance.status', 'accepted')
             ->assertJsonPath('profile.sensitive_data_consent.version', '2026-10-27')
             ->assertJsonPath('profile.sensitive_data_consent.status', 'active')
@@ -137,7 +137,7 @@ class LegalAcceptanceContractTest extends TestCase
             'legal_acceptance' => [
                 'uid' => $user->uid,
                 'role' => 'patient',
-                'privacy_notice_version' => '2026-10-30',
+                'privacy_notice_version' => '2026-11-03',
                 'accepted_at' => '2026-08-03T12:00:00-06:00',
                 'source' => 'android',
                 'explicit_acceptance' => true,
@@ -145,7 +145,7 @@ class LegalAcceptanceContractTest extends TestCase
             ],
             'privacy_notice_read' => [
                 'uid' => $user->uid,
-                'privacy_notice_version' => '2026-10-30',
+                'privacy_notice_version' => '2026-11-03',
                 'confirmed_at' => '2026-10-18T12:00:00-06:00',
                 'source' => 'android',
                 'status' => 'confirmed',
@@ -179,12 +179,12 @@ class LegalAcceptanceContractTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame([
-            'privacy_notice_version' => '2026-10-30',
+            'privacy_notice_version' => '2026-11-03',
             'accepted_at' => '2026-08-03T12:00:00-06:00',
             'status' => 'accepted',
         ], $response->getData(true)['profile']['legal_acceptance']);
         $this->assertSame([
-            'privacy_notice_version' => '2026-10-30',
+            'privacy_notice_version' => '2026-11-03',
             'confirmed_at' => '2026-10-18T12:00:00-06:00',
             'status' => 'confirmed',
             'is_current' => true,
@@ -201,7 +201,7 @@ class LegalAcceptanceContractTest extends TestCase
             'supervisor_uid' => 'supervisor-linked',
             'supervision_status' => 'accepted',
             'privacy_notice_read' => [
-                'privacy_notice_version' => '2026-10-30',
+                'privacy_notice_version' => '2026-11-03',
                 'required_since' => '2026-10-19T10:00:00-06:00',
                 'status' => 'pending',
             ],
@@ -304,7 +304,7 @@ class LegalAcceptanceContractTest extends TestCase
             'role' => 'supervisor',
             'supervisor_type' => 'support_sponsor',
             'privacy_notice_accepted' => true,
-            'privacy_notice_version' => '2026-10-30',
+            'privacy_notice_version' => '2026-11-03',
         ])->assertCreated()
             ->assertJsonPath('ok', true)
             ->assertJsonPath('profile.status', 'pending_review')

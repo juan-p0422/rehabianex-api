@@ -157,7 +157,7 @@ class AuthResponseContractTest extends TestCase
         $profile = [
             'uid' => 'patient-privacy-current',
             'privacy_notice_read' => [
-                'privacy_notice_version' => '2026-10-30',
+                'privacy_notice_version' => '2026-11-03',
                 'confirmed_at' => '2026-10-20T12:00:00-06:00',
                 'status' => 'confirmed',
             ],

@@ -19,16 +19,16 @@ class PrivacyNoticeReadContractTest extends TestCase
 
         $response = $this->getJson('/api/legal/privacy-notice')
             ->assertOk()
-            ->assertJsonPath('notice.version', '2026-10-30')
-            ->assertJsonPath('notice.published_on', '2026-10-30')
+            ->assertJsonPath('notice.version', '2026-11-03')
+            ->assertJsonPath('notice.published_on', '2026-11-03')
             ->assertJsonPath('notice.responsible_status', 'identified')
-            ->assertJsonPath('notice.contact_status', 'phone_confirmed')
+            ->assertJsonPath('notice.contact_status', 'phone_and_email_confirmed')
             ->assertJsonPath('notice.permanent_deletion_contact_status', 'email_confirmed')
             ->assertJsonPath('notice.closed_beta_minimum_age', 18)
             ->assertJsonPath('notice.closed_beta_age_policy_status', 'confirmed_adults_only')
             ->assertJsonPath('notice.sensitive_data_consent_version', '2026-10-27')
             ->assertJsonPath('notice.sensitive_data_consent_separate', true)
-            ->assertJsonPath('notice.pending_legal_fields.0', 'applicable_address')
+            ->assertJsonPath('notice.pending_legal_fields', [])
             ->assertJsonMissingPath('notice.controller_name')
             ->assertJsonFragment(['title' => 'Aviso de Privacidad de RehabiAnex']);
 
@@ -36,6 +36,9 @@ class PrivacyNoticeReadContractTest extends TestCase
         $this->assertStringContainsString('Juan Oswaldo Emilio Olivares Pantoja', $content);
         $this->assertStringContainsString('33 2535 6657', $content);
         $this->assertStringContainsString('Tonalá, Jalisco, México', $content);
+        $this->assertStringContainsString('Calle Circuito Loma Norte número 8962', $content);
+        $this->assertStringContainsString('C.P. 45402', $content);
+        $this->assertStringContainsString('no atribuye al CETI la responsabilidad del tratamiento', $content);
         $this->assertStringContainsString('rehabianex@gmail.com', $content);
         $this->assertStringContainsString('La exportación de datos por autoservicio no forma parte', $content);
         $this->assertStringContainsString('Desactivar mi cuenta y solicitar eliminación desde la aplicación', $content);
@@ -43,7 +46,7 @@ class PrivacyNoticeReadContractTest extends TestCase
         $this->assertStringContainsString('no constituyen cifrado de extremo a extremo', $content);
         $this->assertStringContainsString('Android Keystore y AES-GCM', $content);
         $this->assertStringContainsString('No se deben enviar por correo contraseñas, tokens, notas emocionales', $content);
-        $this->assertStringContainsString('ambos mecanismos son distintos', $content);
+        $this->assertStringContainsString('Ambos mecanismos son distintos', $content);
         $this->assertStringContainsString('su aceptación legal anterior no se elimina ni se reemplaza', $content);
         $this->assertStringContainsString('consentimiento de supervisión o los permisos Android', $content);
     }
@@ -72,7 +75,7 @@ class PrivacyNoticeReadContractTest extends TestCase
         $document = Mockery::mock();
         $document->shouldReceive('set')->once()->with(
             Mockery::on(fn (array $data): bool => ($data['privacy_notice_read']['uid'] ?? null) === $uid
-                && ($data['privacy_notice_read']['privacy_notice_version'] ?? null) === '2026-10-30'
+                && ($data['privacy_notice_read']['privacy_notice_version'] ?? null) === '2026-11-03'
                 && ($data['privacy_notice_read']['status'] ?? null) === 'confirmed'
                 && is_string($data['privacy_notice_read']['confirmed_at'] ?? null)
             ),
@@ -86,7 +89,7 @@ class PrivacyNoticeReadContractTest extends TestCase
         $firebase->shouldReceive('db')->once()->andReturn($db);
 
         $request = Request::create('/api/legal/privacy-notice/read', 'POST', [], [], [], [], json_encode([
-            'version' => '2026-10-30',
+            'version' => '2026-11-03',
             'confirmed_read' => true,
         ], JSON_THROW_ON_ERROR));
         $request->headers->set('Content-Type', 'application/json');
@@ -96,7 +99,7 @@ class PrivacyNoticeReadContractTest extends TestCase
         $response = (new LegalNoticeController($firebase))->confirmRead($request);
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertSame('2026-10-30', $response->getData(true)['confirmation']['privacy_notice_version']);
+        $this->assertSame('2026-11-03', $response->getData(true)['confirmation']['privacy_notice_version']);
         $this->assertArrayNotHasKey('uid', $response->getData(true)['confirmation']);
     }
 
@@ -114,7 +117,7 @@ class PrivacyNoticeReadContractTest extends TestCase
         $firebase = Mockery::mock(FirebaseService::class);
         $firebase->shouldReceive('db')->once()->andThrow(new \RuntimeException('synthetic outage'));
         $request = Request::create('/api/legal/privacy-notice/read', 'POST', [], [], [], [], json_encode([
-            'version' => '2026-10-30',
+            'version' => '2026-11-03',
             'confirmed_read' => true,
         ], JSON_THROW_ON_ERROR));
         $request->headers->set('Content-Type', 'application/json');
@@ -138,7 +141,7 @@ class PrivacyNoticeReadContractTest extends TestCase
         ];
         $document = Mockery::mock();
         $document->shouldReceive('set')->once()->with(
-            Mockery::on(fn (array $data): bool => ($data['privacy_notice_read']['privacy_notice_version'] ?? null) === '2026-10-30'
+            Mockery::on(fn (array $data): bool => ($data['privacy_notice_read']['privacy_notice_version'] ?? null) === '2026-11-03'
                 && ($data['privacy_notice_read_previous'] ?? null) === $previous),
             ['merge' => true],
         );
@@ -150,7 +153,7 @@ class PrivacyNoticeReadContractTest extends TestCase
         $firebase->shouldReceive('db')->once()->andReturn($db);
 
         $request = Request::create('/api/legal/privacy-notice/read', 'POST', [], [], [], [], json_encode([
-            'version' => '2026-10-30',
+            'version' => '2026-11-03',
             'confirmed_read' => true,
         ], JSON_THROW_ON_ERROR));
         $request->headers->set('Content-Type', 'application/json');
@@ -196,7 +199,7 @@ class PrivacyNoticeReadContractTest extends TestCase
         $document->shouldReceive('snapshot')->once()->andReturn($snapshot);
         $document->shouldReceive('set')->once()->with(
             Mockery::on(fn (array $data): bool => ($data['privacy_notice_read']['status'] ?? null) === 'pending'
-                && ($data['privacy_notice_read']['privacy_notice_version'] ?? null) === '2026-10-30'
+                && ($data['privacy_notice_read']['privacy_notice_version'] ?? null) === '2026-11-03'
                 && is_string($data['privacy_notice_read']['required_since'] ?? null)
                 && ! array_key_exists('confirmed_at', $data['privacy_notice_read'])
             ),

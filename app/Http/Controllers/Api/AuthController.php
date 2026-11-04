@@ -936,7 +936,7 @@ class AuthController extends Controller
 
     private function privacyNoticeVersion(): string
     {
-        return (string) config('legal.privacy_notice_version', '2026-10-30');
+        return (string) config('legal.privacy_notice_version', '2026-11-03');
     }
 
     private function sensitiveDataConsentVersion(): string
