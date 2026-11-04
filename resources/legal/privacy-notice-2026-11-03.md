@@ -4,9 +4,9 @@ Versión 2026-11-03. Fecha de publicación: 3 de noviembre de 2026.
 
 ## Responsable y contacto
 
-El responsable del proyecto es Juan Oswaldo Emilio Olivares Pantoja. El domicilio indicado por el responsable para recibir comunicaciones de este proyecto escolar es Calle Circuito Loma Norte número 8962, Colonia Loma Dorada, C.P. 45402, Tonalá, Jalisco, México. Los canales de atención informados para esta beta cerrada son el teléfono 33 2535 6657 y el correo rehabianex@gmail.com.
+El responsable del proyecto es Juan Oswaldo Emilio Olivares Pantoja, quien radica en Tonalá, Jalisco, México. Los canales de atención informados para esta beta cerrada son el teléfono 33 2535 6657 y el correo rehabianex@gmail.com.
 
-El uso del domicilio del CETI Plantel Tonalá como referencia de contacto del proyecto no atribuye al CETI la responsabilidad del tratamiento, la operación de RehabiAnex ni la atención de las solicitudes. Esa responsabilidad permanece en la persona identificada en el párrafo anterior. Este aviso no constituye una certificación de cumplimiento legal integral.
+No se ha proporcionado un domicilio aplicable. La referencia a Tonalá, Jalisco, México indica solamente la ubicación general informada por el responsable y no sustituye un domicilio. No se utiliza el domicilio del CETI como domicilio del responsable ni se atribuye al CETI la responsabilidad del tratamiento, la operación de RehabiAnex o la atención de solicitudes. Mientras esos datos y el procedimiento de atención no estén completos, este aviso permanece como borrador operativo para beta cerrada y no constituye una certificación de cumplimiento legal integral.
 
 La desactivación con borrado suave se inicia desde Control de datos en la aplicación. Para solicitar específicamente la eliminación definitiva de una cuenta se utiliza rehabianex@gmail.com. Ambos mecanismos son distintos y el correo no demuestra por sí solo la identidad de quien escribe.
 

@@ -18,6 +18,6 @@ return [
         'location' => 'Tonalá, Jalisco, México',
         'phone' => '3325356657',
         'email' => 'rehabianex@gmail.com',
-        'applicable_address' => 'Calle Circuito Loma Norte número 8962, Colonia Loma Dorada, C.P. 45402, Tonalá, Jalisco, México',
+        'applicable_address' => null,
     ],
 ];

@@ -36,9 +36,8 @@ class PrivacyNoticeReadContractTest extends TestCase
         $this->assertStringContainsString('Juan Oswaldo Emilio Olivares Pantoja', $content);
         $this->assertStringContainsString('33 2535 6657', $content);
         $this->assertStringContainsString('Tonalá, Jalisco, México', $content);
-        $this->assertStringContainsString('Calle Circuito Loma Norte número 8962', $content);
-        $this->assertStringContainsString('C.P. 45402', $content);
-        $this->assertStringContainsString('no atribuye al CETI la responsabilidad del tratamiento', $content);
+        $this->assertStringContainsString('No se ha proporcionado un domicilio aplicable', $content);
+        $this->assertStringContainsString('No se utiliza el domicilio del CETI', $content);
         $this->assertStringContainsString('rehabianex@gmail.com', $content);
         $this->assertStringContainsString('La exportación de datos por autoservicio no forma parte', $content);
         $this->assertStringContainsString('Desactivar mi cuenta y solicitar eliminación desde la aplicación', $content);
